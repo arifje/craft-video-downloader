@@ -1,0 +1,69 @@
+/* Video Downloader — CP styling */
+
+.vd-scrape-btn {
+  margin-left: 5px;
+}
+
+.vd-modal {
+  width: 480px;
+  max-width: calc(100vw - 48px);
+}
+
+.vd-modal .body {
+  padding: 24px;
+}
+
+.vd-modal .vd-title {
+  margin: 0 0 6px;
+}
+
+.vd-modal .vd-intro {
+  margin: 0 0 16px;
+}
+
+.vd-modal .vd-url {
+  direction: ltr;
+}
+
+.vd-modal .vd-feedback {
+  margin-top: 14px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.vd-modal .vd-feedback.vd-progress {
+  background: var(--gray-050, #f3f7fc);
+  color: var(--medium-text-color, #606d7b);
+}
+
+.vd-modal .vd-feedback.notice {
+  background: var(--gray-050, #f3f7fc);
+  color: var(--medium-text-color, #606d7b);
+}
+
+.vd-modal .vd-feedback.error {
+  background: var(--red-050, #fdf2f2);
+  color: var(--error-color, #cf1124);
+}
+
+.vd-modal .vd-feedback.vd-progress::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  vertical-align: -1px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: vd-spin 0.7s linear infinite;
+}
+
+@keyframes vd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

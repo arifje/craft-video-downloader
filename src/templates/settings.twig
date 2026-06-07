@@ -1,0 +1,75 @@
+{% import '_includes/forms' as forms %}
+
+{{ forms.lightswitchField({
+    label: 'Enabled'|t('app'),
+    instructions: 'Show the “Scrape URL” button on Assets fields in the control panel.'|t('app'),
+    name: 'enabled',
+    on: settings.enabled,
+}) }}
+
+{{ forms.selectField({
+    label: 'Apply to'|t('app'),
+    instructions: 'Which Assets fields get the “Scrape URL” button.'|t('app'),
+    name: 'mode',
+    options: [
+        { label: 'All Assets fields'|t('app'), value: 'all' },
+        { label: 'Only the fields selected below'|t('app'), value: 'list' },
+    ],
+    value: settings.mode,
+}) }}
+
+{{ forms.checkboxSelectField({
+    label: 'Fields'|t('app'),
+    instructions: 'Used when “Apply to” is set to “Only the fields selected below”.'|t('app'),
+    name: 'fieldHandles',
+    options: assetFields,
+    values: settings.fieldHandles,
+}) }}
+
+<hr>
+
+{{ forms.autosuggestField({
+    label: 'yt-dlp path'|t('app'),
+    instructions: 'Path to the `yt-dlp` binary. An environment variable such as `$VIDEO_DOWNLOADER_YTDLP` is supported. ffmpeg is recommended on the same server for formats that need merging.'|t('app'),
+    name: 'ytDlpPath',
+    value: settings.ytDlpPath,
+    suggestEnvVars: true,
+    required: true,
+}) }}
+
+{{ forms.textField({
+    label: 'Format'|t('app'),
+    instructions: 'yt-dlp `-f` format selector. The default prefers a single progressive mp4 and only merges separate streams (needs ffmpeg) when nothing else is available.'|t('app'),
+    name: 'format',
+    value: settings.format,
+    required: true,
+}) }}
+
+{{ forms.textField({
+    label: 'Max file size'|t('app'),
+    instructions: 'Largest download allowed, in megabytes.'|t('app'),
+    name: 'maxFilesizeMb',
+    type: 'number',
+    unit: 'MB'|t('app'),
+    value: settings.maxFilesizeMb,
+    size: 8,
+}) }}
+
+{{ forms.textField({
+    label: 'Timeout'|t('app'),
+    instructions: 'Maximum time the yt-dlp process may run.'|t('app'),
+    name: 'timeout',
+    type: 'number',
+    unit: 'seconds'|t('app'),
+    value: settings.timeout,
+    size: 8,
+}) }}
+
+{{ forms.textareaField({
+    label: 'Allowed hosts'|t('app'),
+    instructions: 'Optional. One hostname per line (for example `youtube.com`). Sub-domains are matched too. Leave empty to allow any http(s) host.'|t('app'),
+    name: 'allowedHosts',
+    value: settings.allowedHosts,
+    rows: 4,
+    placeholder: 'youtube.com'|t('app'),
+}) }}
