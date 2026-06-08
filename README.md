@@ -10,7 +10,7 @@ Compatible with **Craft 4** (this branch). A **Craft 5** branch will follow.
 
 ## How it works
 
-1. The plugin adds a **Scrape URL** button to Assets fields in the control panel (all of them, or a chosen list).
+1. The plugin adds a **Scrape URL** button to Assets fields in the control panel (all of them, or a chosen list) — including fields nested inside **Matrix / Neo / Super Table** blocks.
 2. Clicking it opens a small modal where you paste a video URL.
 3. On submit, a queue job runs `yt-dlp` to download the video into the field's normal upload folder and creates an Asset from it.
 4. While it runs, the modal shows the video's **title, uploader, duration, resolution and thumbnail** plus a **live progress bar** (percent, speed, ETA, downloaded / total).
@@ -106,7 +106,7 @@ Without a worker, Craft drains the queue during later control-panel requests, so
 ## Notes & limitations
 
 - **Authenticated, server-side fetch (SSRF):** the download runs server-side from a URL a logged-in CP user supplies. Restrict it with the **Allowed hosts** setting if your editors aren't fully trusted.
-- **Scope:** this version targets top-level Assets fields on entry edit pages. Assets fields nested inside Matrix blocks are a planned follow-up.
+- **Nested fields:** Assets fields inside **Matrix / Neo / Super Table** blocks are supported — the button appears on them too (the server identifies the field by id, so block sub-field handles don't need to be unique).
 - **Large/slow posts:** bounded by **Max file size** and **Timeout**; tune both for your sources.
 
 ---

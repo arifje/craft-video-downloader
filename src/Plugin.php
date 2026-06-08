@@ -52,10 +52,22 @@ class Plugin extends BasePlugin
     protected function settingsHtml(): ?string
     {
         // Offer the site's Assets fields so an admin can pick which ones get the
-        // button when the mode is "list".
+        // button when the mode is "list". Passing `false` to getFieldsByType()
+        // includes fields nested in Matrix/Neo/Super Table blocks, not just the
+        // global context. De-dupe by handle (matching is handle-based) and flag
+        // the block-nested ones.
         $assetFields = [];
-        foreach (Craft::$app->getFields()->getFieldsByType(\craft\fields\Assets::class) as $field) {
-            $assetFields[] = ['label' => $field->name . ' (' . $field->handle . ')', 'value' => $field->handle];
+        $seen = [];
+        foreach (Craft::$app->getFields()->getFieldsByType(\craft\fields\Assets::class, false) as $field) {
+            if (isset($seen[$field->handle])) {
+                continue;
+            }
+            $seen[$field->handle] = true;
+            $nested = ($field->context ?? 'global') !== 'global';
+            $assetFields[] = [
+                'label' => $field->name . ' (' . $field->handle . ')' . ($nested ? ' — in a block' : ''),
+                'value' => $field->handle,
+            ];
         }
 
         return Craft::$app->getView()->renderTemplate('video-downloader/settings', [

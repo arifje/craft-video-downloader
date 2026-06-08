@@ -40,8 +40,12 @@ class DownloadController extends Controller
             throw new ForbiddenHttpException('Video Downloader is disabled.');
         }
 
-        $fieldHandle = (string) $request->getRequiredBodyParam('fieldHandle');
-        $field       = Craft::$app->getFields()->getFieldByHandle($fieldHandle);
+        // Resolve by id, not handle: the field may live inside a Matrix/Neo/Super
+        // Table block, where handles aren't globally unique. getFieldById() finds
+        // a field in any context; the browser sends the id from the field's own
+        // element-select settings.
+        $fieldId = (int) $request->getRequiredBodyParam('fieldId');
+        $field   = Craft::$app->getFields()->getFieldById($fieldId);
         if (!$field instanceof AssetsField) {
             throw new BadRequestHttpException('Unknown or non-Assets field.');
         }

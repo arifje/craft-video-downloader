@@ -20,16 +20,23 @@
 
   /**
    * The handle of the Assets field an element-select belongs to, parsed from its
-   * input name (e.g. "fields[videos]" → "videos"). Returns null for nested
-   * contexts we don't target (e.g. Matrix) where the name isn't a plain field.
+   * input name. Handles both top-level fields ("fields[videos]" → "videos") and
+   * fields nested in Matrix/Neo/Super Table blocks, whose name ends in
+   * "…[fields][blockVideo]" → "blockVideo". Used only for the "list" filter; the
+   * server is told which field to use by its numeric id (see fieldIdFor).
    */
   function fieldHandleFor(instance) {
     var name = instance && instance.settings && instance.settings.name;
     if (!name) {
       return null;
     }
-    var m = /^fields\[([^\[\]]+)\]$/.exec(name);
+    var m = /^fields\[([^\[\]]+)\]$/.exec(name) || /\[fields\]\[([^\[\]]+)\]$/.exec(name);
     return m ? m[1] : null;
+  }
+
+  /** The numeric field id Craft puts on every element-select's JS settings. */
+  function fieldIdFor(instance) {
+    return instance && instance.settings ? instance.settings.fieldId : null;
   }
 
   function shouldEnhance(handle) {
@@ -214,7 +221,7 @@
 
       var ctx = editContext($container);
       Craft.sendActionRequest('POST', 'video-downloader/download/create', {
-        data: { url: url, fieldHandle: handle, elementId: ctx.elementId, siteId: ctx.siteId },
+        data: { url: url, fieldId: fieldIdFor(instance), elementId: ctx.elementId, siteId: ctx.siteId },
       })
         .then(function (resp) {
           var jobId = resp.data && resp.data.jobId;
@@ -370,6 +377,15 @@
 
   Garnish.$doc.ready(function () {
     scan();
+
+    // Fields nested in Matrix / Neo / Super Table blocks may initialise their
+    // element-select instance shortly after page load, and attaching that
+    // instance isn't a DOM mutation the observer would see — so re-scan a few
+    // times. scan() is idempotent (guarded by the vdEnhanced flag).
+    [400, 1200, 3000].forEach(function (ms) {
+      setTimeout(scan, ms);
+    });
+
     if (typeof MutationObserver !== 'undefined') {
       var t = null;
       var observer = new MutationObserver(function () {
