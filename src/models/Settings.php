@@ -32,6 +32,13 @@ class Settings extends Model
     public array $fieldHandles = [];
 
     /**
+     * Only show the button on Assets fields that accept video — i.e. fields with
+     * no file-type restriction, or whose "Restrict allowed file types" list
+     * includes Video. On by default so image-only fields are left alone.
+     */
+    public bool $videoFieldsOnly = true;
+
+    /**
      * Path to the yt-dlp binary. Supports Craft's env syntax, e.g.
      * `$VIDEO_DOWNLOADER_YTDLP` or an absolute path like `/usr/local/bin/yt-dlp`.
      */
@@ -61,7 +68,7 @@ class Settings extends Model
     public function defineRules(): array
     {
         return [
-            [['enabled'], 'boolean'],
+            [['enabled', 'videoFieldsOnly'], 'boolean'],
             [['mode'], 'in', 'range' => [self::MODE_ALL, self::MODE_LIST]],
             [['fieldHandles'], 'each', 'rule' => ['string']],
             [['ytDlpPath', 'format', 'allowedHosts'], 'string'],

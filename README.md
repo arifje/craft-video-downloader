@@ -67,6 +67,7 @@ Settings live at **Settings → Plugins → Video Downloader**:
 | **Enabled** | on | Master switch for the button. |
 | **Apply to** | All Assets fields | Or limit to a chosen list of fields. |
 | **Fields** | – | The Assets fields that get the button when “Apply to” is set to a list. |
+| **Video-capable fields only** | on | Only show the button on fields that accept video (no file-type restriction, or *Video* among the allowed types). Leave on to skip image-only fields. |
 | **yt-dlp path** | `yt-dlp` | Absolute path, or an env var like `$VIDEO_DOWNLOADER_YTDLP`. |
 | **Format** | `mp4/bestvideo*+bestaudio/best` | yt-dlp `-f` selector. The default avoids needing ffmpeg unless a merge is unavoidable. |
 | **Max file size** | 500 MB | Hard cap (`--max-filesize`). |

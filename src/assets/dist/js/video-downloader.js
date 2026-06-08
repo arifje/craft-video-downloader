@@ -39,6 +39,20 @@
     return instance && instance.settings ? instance.settings.fieldId : null;
   }
 
+  /**
+   * Whether an Assets field accepts video. Craft passes the field's allowed file
+   * kinds to the element-select as `criteria.kind`: empty/absent means no
+   * restriction (anything, incl. video); otherwise it must list "video".
+   */
+  function allowsVideo(instance) {
+    var crit = instance && instance.settings && instance.settings.criteria;
+    var kinds = crit && crit.kind;
+    if (!kinds || !kinds.length) {
+      return true; // unrestricted
+    }
+    return kinds.indexOf('video') !== -1;
+  }
+
   function shouldEnhance(handle) {
     if (!handle) {
       return false;
@@ -63,6 +77,9 @@
       var handle = fieldHandleFor(instance);
       if (!shouldEnhance(handle)) {
         return;
+      }
+      if (settings.videoFieldsOnly !== false && !allowsVideo(instance)) {
+        return; // skip image-only / non-video fields
       }
       injectButton($container, instance, handle);
       $container.data('vdEnhanced', true);

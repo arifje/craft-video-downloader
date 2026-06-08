@@ -52,6 +52,9 @@ class DownloadController extends Controller
         if ($settings->mode === Settings::MODE_LIST && !in_array($field->handle, $settings->fieldHandles, true)) {
             throw new ForbiddenHttpException('Video Downloader is not enabled for this field.');
         }
+        if ($settings->videoFieldsOnly && !$this->fieldAllowsVideo($field)) {
+            throw new ForbiddenHttpException('Video Downloader is limited to fields that accept video files.');
+        }
 
         try {
             $url = Downloader::normalizeUrl((string) $request->getRequiredBodyParam('url'), $settings->getAllowedHostsList());
@@ -118,5 +121,17 @@ class DownloadController extends Controller
         }
 
         return $this->asJson($response);
+    }
+
+    /**
+     * Whether an Assets field accepts video: either it has no file-type
+     * restriction, or its allowed kinds include "video".
+     */
+    private function fieldAllowsVideo(AssetsField $field): bool
+    {
+        if (!$field->restrictFiles) {
+            return true;
+        }
+        return in_array('video', (array) ($field->allowedKinds ?? []), true);
     }
 }

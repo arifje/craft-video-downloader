@@ -96,8 +96,9 @@ class Plugin extends BasePlugin
                 $view = Craft::$app->getView();
                 $view->registerAssetBundle(VideoDownloaderAsset::class);
                 $view->registerJsVar('videoDownloaderSettings', [
-                    'mode'    => $settings->mode,
-                    'handles' => array_values($settings->fieldHandles),
+                    'mode'            => $settings->mode,
+                    'handles'         => array_values($settings->fieldHandles),
+                    'videoFieldsOnly' => $settings->videoFieldsOnly,
                 ]);
             }
         );

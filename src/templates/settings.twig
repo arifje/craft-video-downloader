@@ -26,6 +26,13 @@
     values: settings.fieldHandles,
 }) }}
 
+{{ forms.lightswitchField({
+    label: 'Video-capable fields only'|t('app'),
+    instructions: 'Only show the button on Assets fields that accept video — fields with no file-type restriction, or whose allowed file types include Video. Leave on to skip image-only fields.'|t('app'),
+    name: 'videoFieldsOnly',
+    on: settings.videoFieldsOnly,
+}) }}
+
 <hr>
 
 {{ forms.autosuggestField({
