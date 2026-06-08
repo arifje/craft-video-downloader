@@ -104,6 +104,8 @@ class DownloadController extends Controller
             'status'   => $status,
             'stage'    => $record['stage'] ?? null,
             'progress' => $record['progress'] ?? 0,
+            'meta'     => $record['meta'] ?? null,
+            'download' => $record['download'] ?? null,
         ];
         if ($status === 'done') {
             $response['result'] = $record['result'] ?? null;

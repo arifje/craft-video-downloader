@@ -1,7 +1,7 @@
 {
     "name": "arifje/craft-video-downloader",
     "description": "Craft CMS plugin that adds a \"Scrape URL\" button to Assets fields — paste a social-media video URL and yt-dlp downloads it on the queue and attaches it to the field.",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "type": "craft-plugin",
     "license": "MIT",
     "keywords": [

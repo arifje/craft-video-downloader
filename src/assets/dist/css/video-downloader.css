@@ -25,6 +25,7 @@
   direction: ltr;
 }
 
+/* Error feedback */
 .vd-modal .vd-feedback {
   margin-top: 14px;
   padding: 8px 12px;
@@ -32,38 +33,103 @@
   font-size: 13px;
   line-height: 1.4;
   word-break: break-word;
-}
-
-.vd-modal .vd-feedback.vd-progress {
-  background: var(--gray-050, #f3f7fc);
-  color: var(--medium-text-color, #606d7b);
-}
-
-.vd-modal .vd-feedback.notice {
-  background: var(--gray-050, #f3f7fc);
-  color: var(--medium-text-color, #606d7b);
-}
-
-.vd-modal .vd-feedback.error {
   background: var(--red-050, #fdf2f2);
   color: var(--error-color, #cf1124);
 }
 
-.vd-modal .vd-feedback.vd-progress::before {
-  content: '';
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  margin-right: 8px;
-  vertical-align: -1px;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: vd-spin 0.7s linear infinite;
+/* Progress panel */
+.vd-modal .vd-panel {
+  margin-top: 16px;
 }
 
-@keyframes vd-spin {
-  to {
-    transform: rotate(360deg);
+.vd-modal .vd-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.vd-modal .vd-thumb {
+  flex: 0 0 auto;
+}
+
+.vd-modal .vd-thumb img {
+  display: block;
+  width: 96px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--gray-100, #e4edf6);
+}
+
+.vd-modal .vd-headtext {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.vd-modal .vd-stage {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.vd-modal .vd-vtitle {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.vd-modal .vd-vtitle:empty {
+  display: none;
+}
+
+.vd-modal .vd-sub {
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+/* Progress bar */
+.vd-modal .vd-bar {
+  position: relative;
+  margin-top: 14px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--gray-100, #e4edf6);
+  overflow: hidden;
+}
+
+.vd-modal .vd-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0;
+  border-radius: 4px;
+  background: var(--enabled-color, #27ab83);
+  transition: width 0.25s ease;
+}
+
+/* Indeterminate sweep while we have no percentage yet */
+.vd-modal .vd-bar--indeterminate .vd-bar-fill {
+  width: 33% !important;
+  transition: none;
+  animation: vd-sweep 1.1s ease-in-out infinite;
+}
+
+@keyframes vd-sweep {
+  0% {
+    left: -35%;
   }
+  100% {
+    left: 100%;
+  }
+}
+
+.vd-modal .vd-stats {
+  margin-top: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  min-height: 16px;
 }
