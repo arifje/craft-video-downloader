@@ -16,15 +16,20 @@
         { label: 'Only the fields selected below'|t('app'), value: 'list' },
     ],
     value: settings.mode,
+    toggle: true,
+    targetPrefix: 'vd-mode-',
 }) }}
 
-{{ forms.checkboxSelectField({
-    label: 'Fields'|t('app'),
-    instructions: 'Used when “Apply to” is set to “Only the fields selected below”.'|t('app'),
-    name: 'fieldHandles',
-    options: assetFields,
-    values: settings.fieldHandles,
-}) }}
+{# Only shown (and only takes effect) when “Apply to” is “Only the fields selected below”. #}
+<div id="vd-mode-list"{{ settings.mode != 'list' ? ' class="hidden"' }}>
+    {{ forms.checkboxSelectField({
+        label: 'Fields'|t('app'),
+        instructions: 'The Assets fields that get the button.'|t('app'),
+        name: 'fieldHandles',
+        options: assetFields,
+        values: settings.fieldHandles,
+    }) }}
+</div>
 
 {{ forms.lightswitchField({
     label: 'Video-capable fields only'|t('app'),
