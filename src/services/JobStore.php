@@ -20,9 +20,13 @@ final class JobStore
 
     public function __construct(?string $dir = null, int $ttlDays = 1)
     {
-        $storage = Craft::getAlias('@storage', false);
-        $base    = $dir ?: (($storage !== false ? $storage : sys_get_temp_dir()) . '/video-downloader/jobs');
-        $this->dir     = rtrim($base, '/');
+        if ($dir === null || $dir === '') {
+            // Only touch Craft when no explicit dir is given, so the store stays
+            // usable (and testable) without a booted Craft app.
+            $storage = Craft::getAlias('@storage', false);
+            $dir = ($storage !== false ? $storage : sys_get_temp_dir()) . '/video-downloader/jobs';
+        }
+        $this->dir     = rtrim($dir, '/');
         $this->ttlDays = max(1, $ttlDays);
     }
 

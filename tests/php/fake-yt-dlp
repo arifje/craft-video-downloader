@@ -1,0 +1,88 @@
+#!/usr/bin/env php
+<?php
+/**
+ * Stand-in for the yt-dlp binary used by the executable unit tests.
+ * Never touches the network. Behaviour is selected via VD_FAKE_MODE:
+ *
+ *   success (default) — emit progress lines, write a small .mp4, exit 0
+ *   fail              — write an ERROR to stderr, exit 1
+ *   nofile            — exit 0 without producing a file
+ *   sleep             — sleep 10s (for timeout tests)
+ *   big               — write a 2 MiB file (for size-cap tests)
+ *   badext            — write payload.html instead of a video container
+ *   probe             — print a --dump-single-json style payload
+ *
+ * It also asserts the caller's argv hygiene: a `--` separator must be present
+ * and the URL must be the final argument after it, otherwise exit 64.
+ */
+
+$argvIn = $argv;
+array_shift($argvIn);
+
+$mode = getenv('VD_FAKE_MODE') ?: 'success';
+
+// argv hygiene: find `--`; everything after it is positional.
+$sepIndex = array_search('--', $argvIn, true);
+if ($sepIndex === false) {
+    fwrite(STDERR, "fake-yt-dlp: missing -- separator\n");
+    exit(64);
+}
+$positional = array_slice($argvIn, $sepIndex + 1);
+if (count($positional) !== 1 || !str_starts_with($positional[0], 'http')) {
+    fwrite(STDERR, "fake-yt-dlp: expected exactly one URL after --\n");
+    exit(64);
+}
+
+// Resolve the output dir from the -o template.
+$outDir = null;
+foreach ($argvIn as $i => $arg) {
+    if ($arg === '-o' && isset($argvIn[$i + 1])) {
+        $outDir = dirname($argvIn[$i + 1]);
+    }
+}
+
+switch ($mode) {
+    case 'probe':
+        echo json_encode([
+            'title' => 'Fake Video',
+            'uploader' => 'Fake Uploader',
+            'extractor_key' => 'Fake',
+            'duration' => 12.4,
+            'width' => 1280,
+            'height' => 720,
+            'ext' => 'mp4',
+            'thumbnail' => 'https://example.invalid/thumb.jpg',
+            'filesize_approx' => 12345,
+        ]) . "\n";
+        exit(0);
+
+    case 'fail':
+        fwrite(STDERR, "WARNING: something benign\nERROR: [fake] This video is unavailable\n");
+        exit(1);
+
+    case 'sleep':
+        sleep(10);
+        exit(0);
+
+    case 'nofile':
+        echo "__VDLP__|100.0%|100|100|NA|100.0|0\n";
+        exit(0);
+
+    case 'big':
+        file_put_contents($outDir . '/Big_Video [big1].mp4', str_repeat('x', 2 * 1024 * 1024));
+        exit(0);
+
+    case 'badext':
+        file_put_contents($outDir . '/payload [x1].html', '<html>nope</html>');
+        exit(0);
+
+    case 'success':
+    default:
+        echo "__VDLP__|  0.0%|0|1000|NA|NA|NA\n";
+        usleep(50000);
+        echo "__VDLP__| 50.0%|500|1000|NA|2500.0|1\n";
+        usleep(50000);
+        echo "__VDLP__|100.0%|1000|1000|NA|5000.0|0\n";
+        file_put_contents($outDir . '/Fake_Video [abc123].mp4', str_repeat('v', 1000));
+        exit(0);
+}

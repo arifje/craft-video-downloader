@@ -6,57 +6,119 @@ use arifje\craftvideodownloader\Plugin;
 use arifje\craftvideodownloader\services\Downloader;
 use arifje\craftvideodownloader\services\JobStore;
 use Craft;
-use craft\base\ElementInterface;
 use craft\elements\Asset;
 use craft\fields\Assets as AssetsField;
-use craft\models\Volume;
-use craft\models\VolumeFolder;
+use craft\helpers\Assets as AssetsHelper;
 use craft\queue\BaseJob;
+use yii\queue\RetryableJobInterface;
 
 /**
  * Downloads a video with yt-dlp and creates an Asset from it.
  *
- * Runs on Craft's queue. The new asset's id is written to the {@see JobStore} so
- * the polling endpoint ({@see \arifje\craftvideodownloader\controllers\DownloadController::actionStatus()})
- * can hand it back to the browser, which attaches it to the open field.
+ * The destination folder was resolved and authorized at request time (in web
+ * context, exactly like a manual upload) and travels with the job — a console
+ * queue worker never needs a logged-in session to resolve it. Everything that
+ * can change between enqueue and execution is re-checked here: plugin enabled,
+ * field still allowed by the settings, folder still present, and the requesting
+ * user still permitted to upload to the destination volume.
  *
- * Note on context: when Craft runs the queue inline during a web request (the
- * default, with no `queue/listen` worker) the requesting user is present, so the
- * field's upload-folder resolution works exactly like a manual upload. Under a
- * console worker there's no user, so a temp-folder fallback resolves to the
- * field's configured volume instead.
+ * Retry safety: the job implements {@see RetryableJobInterface} with a TTR
+ * sized to the configured download timeout so a long download is never handed
+ * to a second worker mid-run, and execute() is idempotent — if a previous
+ * attempt already produced the asset, it is never created twice.
  */
-class DownloadJob extends BaseJob
+class DownloadJob extends BaseJob implements RetryableJobInterface
 {
     public string $jobId = '';
     public string $url = '';
+    public int $fieldId = 0;
+    public int $folderId = 0;
     public ?int $elementId = null;
     public ?int $siteId = null;
-    public int $fieldId = 0;
     public ?int $uploaderId = null;
+
+    public function getTtr(): int
+    {
+        $timeout = 300;
+        try {
+            $timeout = (int) Plugin::getInstance()->getSettings()->timeout;
+        } catch (\Throwable $e) {
+            // settings unavailable — fall back to the default
+        }
+        // download timeout + probe cap + asset-save headroom
+        return max(300, $timeout) + 240;
+    }
+
+    public function canRetry($attempt, $error): bool
+    {
+        return $attempt < 2;
+    }
 
     public function execute($queue): void
     {
-        $store = new JobStore();
+        $store  = new JobStore();
+        $record = $store->get($this->jobId);
+
+        // Idempotency for retries/redeliveries: never create a second asset.
+        if ($record !== null) {
+            if (($record['status'] ?? '') === 'done') {
+                return;
+            }
+            $existingId = (int) ($record['result']['assetId'] ?? 0);
+            if ($existingId > 0) {
+                $store->update($this->jobId, ['status' => 'done', 'stage' => 'done', 'progress' => 1.0]);
+                return;
+            }
+        }
+
         $store->update($this->jobId, ['status' => 'running', 'stage' => 'starting', 'progress' => 0.05]);
 
         $dir = null;
+        /** @var Downloader|null $downloader */
+        $downloader = null;
+
         try {
             $settings = Plugin::getInstance()->getSettings();
 
-            $field = Craft::$app->getFields()->getFieldById($this->fieldId);
-            if (!$field instanceof AssetsField) {
-                throw new \RuntimeException('The target field is not an Assets field (or no longer exists).');
+            // --- re-check everything that may have changed since enqueue ----
+            if (!$settings->enabled) {
+                throw new \RuntimeException('Video Downloader has been disabled.');
             }
 
-            $element = $this->elementId
-                ? Craft::$app->getElements()->getElementById($this->elementId, null, $this->siteId)
-                : null;
+            $field = Craft::$app->getFields()->getFieldById($this->fieldId);
+            if (!$field instanceof AssetsField) {
+                throw new \RuntimeException('The target field no longer exists (or is not an Assets field).');
+            }
+            if (!$settings->allowsField($field)) {
+                throw new \RuntimeException('Video Downloader is no longer enabled for this field.');
+            }
 
-            $folder = $this->resolveFolder($field, $element);
+            $folder = $this->folderId > 0 ? Craft::$app->getAssets()->getFolderById($this->folderId) : null;
+            if ($folder === null) {
+                throw new \RuntimeException('The destination folder no longer exists.');
+            }
+
+            $user = $this->uploaderId ? Craft::$app->getUsers()->getUserById($this->uploaderId) : null;
+            if ($user === null) {
+                throw new \RuntimeException('The requesting user no longer exists.');
+            }
+            if ($folder->volumeId) {
+                $volume = $folder->getVolume();
+                if (!$user->can('saveAssets:' . $volume->uid)) {
+                    throw new \RuntimeException('The requesting user is no longer allowed to upload to this volume.');
+                }
+            } else {
+                // Only the requester's own temporary-uploads folder is acceptable
+                // as a volume-less destination (unsaved-element uploads).
+                $temporaryFolder = Craft::$app->getAssets()->getUserTemporaryUploadFolder($user);
+                if ($temporaryFolder->id != $folder->id) {
+                    throw new \RuntimeException('The destination folder is not available.');
+                }
+            }
+
             $downloader = Downloader::fromSettings($settings);
 
-            // Lightweight metadata first, so the UI can show what's being fetched.
+            // --- metadata first, so the UI can show what's being fetched ----
             $store->update($this->jobId, ['stage' => 'extracting', 'progress' => 0.1]);
             $this->setProgress($queue, 0.1, 'Reading video info');
             $meta = $downloader->probe($this->url);
@@ -95,18 +157,26 @@ class DownloadJob extends BaseJob
             $download = $downloader->download($this->url, $onProgress);
             $dir = $download['dir'];
 
+            // --- honour the field's accepted file kinds ---------------------
+            if ($field->restrictFiles && !empty($field->allowedKinds)) {
+                $kind = AssetsHelper::getFileKindByExtension($download['filename']);
+                if (!in_array($kind, (array) $field->allowedKinds, true)) {
+                    throw new \RuntimeException("The downloaded file is a \"{$kind}\" file, which this field does not accept.");
+                }
+            }
+
             $store->update($this->jobId, ['stage' => 'saving', 'progress' => 0.9]);
             $this->setProgress($queue, 0.9, 'Saving asset');
 
             $asset = new Asset();
             $asset->tempFilePath = $download['path'];
-            $asset->setFilename($download['filename']);
+            $asset->setFilename(AssetsHelper::prepareAssetName($download['filename']));
             $asset->newFolderId = $folder->id;
-            $asset->setVolumeId($folder->volumeId);
-            $asset->avoidFilenameConflicts = true;
-            if ($this->uploaderId) {
-                $asset->uploaderId = $this->uploaderId;
+            if ($folder->volumeId) {
+                $asset->setVolumeId($folder->volumeId);
             }
+            $asset->uploaderId = $this->uploaderId;
+            $asset->avoidFilenameConflicts = true;
             $asset->setScenario(Asset::SCENARIO_CREATE);
 
             if (!Craft::$app->getElements()->saveElement($asset)) {
@@ -114,6 +184,8 @@ class DownloadJob extends BaseJob
                 throw new \RuntimeException('Could not save the downloaded asset.' . ($errors !== '' ? " {$errors}" : ''));
             }
 
+            // Persist the result immediately after the save so a crash between
+            // here and "done" can be recovered idempotently on retry.
             $store->update($this->jobId, [
                 'status'   => 'done',
                 'stage'    => 'done',
@@ -131,11 +203,12 @@ class DownloadJob extends BaseJob
                 'error'  => $e->getMessage(),
             ]);
             Craft::error('[video-downloader/job ' . $this->jobId . '] ' . $e->getMessage(), __METHOD__);
-            // Re-throw so the failure is visible in Craft's queue too (and retried if configured).
+            // Re-throw so the failure is visible in Craft's queue (and retried
+            // once, per canRetry(); execute() is idempotent for the asset).
             throw $e;
         } finally {
-            if ($dir !== null) {
-                (new Downloader($settings->getResolvedYtDlpPath(), $settings->format, 0, 0))->removeDir($dir);
+            if ($dir !== null && $downloader !== null) {
+                $downloader->removeDir($dir);
             }
         }
     }
@@ -143,68 +216,5 @@ class DownloadJob extends BaseJob
     protected function defaultDescription(): ?string
     {
         return 'Video Downloader: fetch ' . $this->url;
-    }
-
-    /**
-     * Resolve the folder the field would upload to, honoring its restrict-to /
-     * default-upload-location settings. Falls back to the root folder of the
-     * field's configured volume when the dynamic resolution lands on a temp
-     * folder (e.g. a console worker with no logged-in user).
-     */
-    private function resolveFolder(AssetsField $field, ?ElementInterface $element): VolumeFolder
-    {
-        $assets = Craft::$app->getAssets();
-
-        try {
-            $folderId = $field->resolveDynamicPathToFolderId($element);
-            $folder = $assets->getFolderById($folderId);
-            if ($folder !== null && $folder->volumeId !== null) {
-                return $folder;
-            }
-        } catch (\Throwable $e) {
-            // fall through to the volume-root fallback
-        }
-
-        $volume = $this->fieldVolume($field);
-        if ($volume === null) {
-            throw new \RuntimeException(
-                'Could not determine a target volume for this field. Set a "Default Upload Location" on the Assets field, '
-                . 'or run the queue inline (no queue/listen worker) so the upload folder resolves against the logged-in user.'
-            );
-        }
-
-        $root = $assets->getRootFolderByVolumeId($volume->id);
-        if ($root === null) {
-            throw new \RuntimeException("Could not find the root folder for volume \"{$volume->name}\".");
-        }
-        return $root;
-    }
-
-    /** Best-effort: the volume a field points at, from its source settings. */
-    private function fieldVolume(AssetsField $field): ?Volume
-    {
-        $volumes = Craft::$app->getVolumes();
-
-        $candidates = [];
-        $candidates[] = $field->restrictLocation
-            ? ($field->restrictedLocationSource ?? null)
-            : ($field->defaultUploadLocationSource ?? null);
-
-        $sources = $field->sources;
-        if (is_array($sources)) {
-            $candidates = array_merge($candidates, $sources);
-        }
-
-        foreach ($candidates as $source) {
-            if (is_string($source) && str_starts_with($source, 'volume:')) {
-                $volume = $volumes->getVolumeByUid(substr($source, 7));
-                if ($volume !== null) {
-                    return $volume;
-                }
-            }
-        }
-
-        $all = $volumes->getAllVolumes();
-        return $all[0] ?? null;
     }
 }

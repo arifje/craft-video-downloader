@@ -78,6 +78,29 @@ class Settings extends Model
     }
 
     /**
+     * Whether this plugin is allowed to operate on the given Assets field under
+     * the current settings (enabled + mode/list + video-capable filter).
+     *
+     * Shared by the controller (request time) and the queue job (execution
+     * time), so a settings change between enqueue and execution is honoured.
+     */
+    public function allowsField(\craft\fields\Assets $field): bool
+    {
+        if (!$this->enabled) {
+            return false;
+        }
+        if ($this->mode === self::MODE_LIST && !in_array($field->handle, $this->fieldHandles, true)) {
+            return false;
+        }
+        if ($this->videoFieldsOnly && $field->restrictFiles
+            && !in_array('video', (array) ($field->allowedKinds ?? []), true)
+        ) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * The allowed-hosts setting parsed into a list of trimmed, lower-cased
      * hostnames (blank lines dropped).
      *

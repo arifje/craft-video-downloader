@@ -1,0 +1,12 @@
+{
+    "name": "video-downloader-js-tests",
+    "private": true,
+    "description": "Headless regression tests for the CP JavaScript (jsdom + jquery, mocked Craft).",
+    "scripts": {
+        "test": "node test.js"
+    },
+    "devDependencies": {
+        "jquery": "^3.7.1",
+        "jsdom": "^24.0.0"
+    }
+}

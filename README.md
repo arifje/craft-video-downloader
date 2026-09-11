@@ -2,7 +2,7 @@
 
 A Craft CMS plugin that adds a **“Scrape URL”** button to your Assets fields. Paste a link to a social-media video, and the server downloads it with [**yt-dlp**](https://github.com/yt-dlp/yt-dlp) on Craft's queue and attaches the resulting video to the field — right next to **Add** / **Upload files**.
 
-Compatible with **Craft 4** (this branch). A **Craft 5** branch will follow.
+Compatible with **Craft CMS 4 and Craft CMS 5** from a single codebase (`^4.0 || ^5.0`).
 
 ![The Scrape URL button sits next to Add / Upload files on an Assets field.](#)
 
@@ -12,18 +12,18 @@ Compatible with **Craft 4** (this branch). A **Craft 5** branch will follow.
 
 1. The plugin adds a **Scrape URL** button to Assets fields in the control panel (all of them, or a chosen list) — including fields nested inside **Matrix / Neo / Super Table** blocks.
 2. Clicking it opens a small modal where you paste a video URL.
-3. On submit, a queue job runs `yt-dlp` to download the video into the field's normal upload folder and creates an Asset from it.
+3. On submit the plugin authorizes the request (see [Permissions & security](#permissions--security)), resolves the field's upload folder exactly like a manual upload would, and queues a job that runs `yt-dlp` and creates an Asset from the result.
 4. While it runs, the modal shows the video's **title, uploader, duration, resolution and thumbnail** plus a **live progress bar** (percent, speed, ETA, downloaded / total).
 5. When the download finishes, the new video is dropped into the field automatically.
 6. **Save** the entry as usual to keep the relation.
 
-The asset is created in exactly the folder/volume the field's **Upload files** button would use (it honours the field's *Restrict / Default Upload Location* settings).
+The asset is created in exactly the folder/volume the field's **Upload files** button would use (it honours the field's *Restrict / Default Upload Location* settings, including the user's temporary-uploads folder for unsaved elements). The destination is resolved and authorized **at request time**, in the editor's own web session — so console queue workers never guess, and there is no fallback to "some volume": if the destination can't be resolved you get a clear error instead.
 
 ---
 
 ## Requirements
 
-- Craft CMS 4 (PHP 8.0.2+)
+- Craft CMS 4 or Craft CMS 5 (PHP 8.0.2+ for Craft 4; Craft 5 itself requires PHP 8.2+)
 - [**yt-dlp**](https://github.com/yt-dlp/yt-dlp) installed on the server
 - **ffmpeg** recommended on the same server (only needed when yt-dlp has to merge separate video + audio streams)
 - PHP's `proc_open` must not be disabled (check `disable_functions` in `php.ini`)
@@ -52,7 +52,7 @@ Add the repo to your project's `composer.json`:
 Then:
 
 ```bash
-composer require arifje/craft-video-downloader:^1.0
+composer require arifje/craft-video-downloader:^2.0
 php craft plugin/install video-downloader
 ```
 
@@ -100,21 +100,51 @@ php craft queue/listen
 
 Without a worker, Craft drains the queue during later control-panel requests, so the download still completes — the modal just keeps polling until it does.
 
-> **Tip:** with a console worker (`queue/listen`) there's no logged-in user, so set a **Default Upload Location** on the Assets field. The plugin falls back to the field's volume root if it can't resolve a user-specific folder, but an explicit upload location is cleaner.
+> The upload folder is resolved and authorized when you click **Download** — in your own web session — and travels with the job, so a console worker never needs a logged-in user and never falls back to an unintended volume. Before doing any work, the job re-checks that the plugin is still enabled, the field is still allowed, the folder still exists, and you are still permitted to upload to it.
+
+---
+
+## Permissions & security
+
+**Who can use it.** Requests require a logged-in user with **control-panel access**; per download the user must also be allowed to **save the element being edited** (when one is given, its field layout must actually contain the field — directly or nested), and must hold Craft's own **`Save assets`** permission on the destination volume (the user's temporary-uploads folder for unsaved elements is exempt, exactly like Craft's native upload). All of this is re-checked when the queued job executes, so revoking access between enqueue and execution takes effect. Job status is **owner-scoped**: only the user who started a download can poll it.
+
+**Download hygiene.**
+
+- URLs must be http(s), ≤ 2048 chars, without embedded credentials.
+- Hosts that are — or resolve to — **private, loopback, link-local or reserved addresses** (cloud metadata endpoints included) are rejected. Adding a host to **Allowed hosts** is treated as informed consent and bypasses this check for that host.
+- yt-dlp is invoked with an argv array (no shell) and the URL always follows a `--` separator so it can never be parsed as an option; socket and wall-clock timeouts plus `--max-filesize` bound every run.
+- Downloaded output is validated before import (non-empty, within the size cap, a recognised AV container) and checked against the field's **allowed file kinds**; filenames are sanitised by yt-dlp (`--restrict-filenames`) and Craft.
+- Temp files live in per-job directories under Craft's temp path and are always cleaned up — the cleaner refuses to touch anything outside the plugin's own temp base.
+- Editor-facing errors are truncated and stripped of server paths; full details go to Craft's logs.
+
+> ⚠️ **Deployment-level controls still matter.** Host validation happens before yt-dlp runs; yt-dlp itself follows redirects and fetches extractor-discovered media URLs that cannot be re-validated from PHP (redirects, DNS rebinding, multi-URL extractors). If your threat model includes malicious editors, run the queue worker with **egress filtering** (block RFC1918/link-local/metadata ranges at the network level) and keep **Allowed hosts** configured. Also note the plugin can't prevent a user from downloading content they shouldn't — it downloads what an authorized editor asks for.
 
 ---
 
 ## Notes & limitations
 
-- **Authenticated, server-side fetch (SSRF):** the download runs server-side from a URL a logged-in CP user supplies. Restrict it with the **Allowed hosts** setting if your editors aren't fully trusted.
-- **Nested fields:** Assets fields inside **Matrix / Neo / Super Table** blocks are supported — the button appears on them too (the server identifies the field by id, so block sub-field handles don't need to be unique).
+- **Nested fields:** Assets fields inside **Matrix (Craft 4 blocks and Craft 5 nested entries), Neo, Super Table** and slideout editors are supported — the server identifies the field by id, so sub-field handles don't need to be unique. On Craft 5, per-layout **handle overrides** are what the "only these fields" list matches against in the editor.
 - **Large/slow posts:** bounded by **Max file size** and **Timeout**; tune both for your sources.
+- **Field limits:** the modal refuses to start (and to attach) when the field is already at its element limit.
+
+---
+
+## Tests
+
+Two executable suites live in `tests/` and run with **no Craft installation and no network** (downloads are mocked with a stub yt-dlp):
+
+```bash
+php tests/php/run.php                      # URL/SSRF guard, download pipeline, cleanup, JobStore
+cd tests/js && npm install && npm test     # CP JS: filtering, Craft 4/5 name shapes, modal guard
+```
+
+Checks that require a real Craft 4 **and** Craft 5 installation (permissions, folder resolution, asset creation, end-to-end) are documented as a checklist in [`tests/craft/INTEGRATION.md`](tests/craft/INTEGRATION.md).
 
 ---
 
 ## Local development
 
-Point a test Craft 4 site at a local clone:
+Point a test Craft 4 or Craft 5 site at a local clone:
 
 ```json
 "repositories": [

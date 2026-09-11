@@ -1,11 +1,22 @@
 /**
- * Video Downloader — CP integration.
+ * Video Downloader — CP integration for Craft 4 and Craft 5.
  *
  * Injects a "Scrape URL" button into Assets fields, opens a modal to collect a
  * social-media video URL, enqueues a server-side yt-dlp download, polls for
  * metadata + live progress, and attaches the finished asset to the field using
- * the same get-element-html → selectElements() path Craft itself uses after an
- * upload — so the asset persists on a normal Save.
+ * the same render + selectElements() path Craft itself uses after an upload —
+ * so the asset persists on a normal Save and never overwrites the editor's
+ * other selections.
+ *
+ * Version notes:
+ *  - Craft 4 renders chips via `elements/get-element-html`; Craft 5 removed it
+ *    in favour of `app/render-elements`. The fork keys off the Craft version
+ *    the plugin passes along in its settings.
+ *  - Field handles are parsed from the element-select's namespaced input name,
+ *    which covers top-level fields (`fields[videos]`), Craft 4 Matrix blocks
+ *    (`…[blocks][123][fields][videos]`), Craft 5 Matrix entries
+ *    (`…[entries][uid:…][fields][videos]`), and slideout namespaces
+ *    (`ns123[fields][videos]`) with one pair of patterns.
  */
 (function ($) {
   'use strict';
@@ -14,16 +25,28 @@
     return;
   }
 
-  var settings = window.videoDownloaderSettings || { mode: 'all', handles: [] };
   var POLL_INTERVAL = 1000; // ms
+  var POLL_INTERVAL_SLOW = 2500; // back-off interval once a job runs long
+  var POLL_SLOW_AFTER = 20; // polls before backing off
   var POLL_TIMEOUT = 15 * 60 * 1000; // give up after 15 minutes
 
   /**
-   * The handle of the Assets field an element-select belongs to, parsed from its
-   * input name. Handles both top-level fields ("fields[videos]" → "videos") and
-   * fields nested in Matrix/Neo/Super Table blocks, whose name ends in
-   * "…[fields][blockVideo]" → "blockVideo". Used only for the "list" filter; the
-   * server is told which field to use by its numeric id (see fieldIdFor).
+   * The plugin settings Craft registers as a JS var. Read lazily on every use
+   * so script/var ordering can never freeze us on the defaults.
+   */
+  function cfg() {
+    return window.videoDownloaderSettings || { mode: 'all', handles: [] };
+  }
+
+  function isCraft5() {
+    return parseInt(String(cfg().craft || '4'), 10) >= 5;
+  }
+
+  /**
+   * The handle of the Assets field an element-select belongs to, parsed from
+   * its input name. Used only for the "list" filter; the server is told which
+   * field to use by its numeric id (see fieldIdFor). Note: on Craft 5 a field
+   * layout may override the handle — the override is what appears here.
    */
   function fieldHandleFor(instance) {
     var name = instance && instance.settings && instance.settings.name;
@@ -39,9 +62,20 @@
     return instance && instance.settings ? instance.settings.fieldId : null;
   }
 
+  function shouldEnhance(handle) {
+    if (!handle) {
+      return false;
+    }
+    var settings = cfg();
+    if (settings.mode === 'list') {
+      return (settings.handles || []).indexOf(handle) !== -1;
+    }
+    return true; // 'all'
+  }
+
   /**
-   * Whether an Assets field accepts video. Craft passes the field's allowed file
-   * kinds to the element-select as `criteria.kind`: empty/absent means no
+   * Whether an Assets field accepts video. Craft passes the field's allowed
+   * file kinds to the element-select as `criteria.kind`: empty/absent means no
    * restriction (anything, incl. video); otherwise it must list "video".
    */
   function allowsVideo(instance) {
@@ -51,16 +85,6 @@
       return true; // unrestricted
     }
     return kinds.indexOf('video') !== -1;
-  }
-
-  function shouldEnhance(handle) {
-    if (!handle) {
-      return false;
-    }
-    if (settings.mode === 'list') {
-      return (settings.handles || []).indexOf(handle) !== -1;
-    }
-    return true; // 'all'
   }
 
   /** Find Assets-field element-selects on the page and add the button. */
@@ -74,38 +98,53 @@
       if (!instance || !(instance instanceof Craft.AssetSelectInput)) {
         return; // not an Assets field (entries/categories/etc.)
       }
+      if (instance.settings && instance.settings.allowAdd === false) {
+        return; // static/read-only rendering (Craft 5) — nothing to add to
+      }
       var handle = fieldHandleFor(instance);
       if (!shouldEnhance(handle)) {
         return;
       }
-      if (settings.videoFieldsOnly !== false && !allowsVideo(instance)) {
+      if (cfg().videoFieldsOnly !== false && !allowsVideo(instance)) {
         return; // skip image-only / non-video fields
       }
-      injectButton($container, instance, handle);
+      injectButton($container, instance);
       $container.data('vdEnhanced', true);
     });
   }
 
-  function injectButton($container, instance, handle) {
+  function injectButton($container, instance) {
     var $addBtn = $container.find('.btn.add').first();
     var $row = $addBtn.length ? $addBtn.parent() : $container.children('.flex').first();
     if (!$row.length) {
       $row = $('<div class="flex"/>').appendTo($container);
     }
+
     var $btn = $(
       '<button type="button" class="btn dashed icon vd-scrape-btn" data-icon="download">' +
         Craft.t('app', 'Scrape URL') +
         '</button>'
     );
     $btn.on('click', function () {
-      openModal($container, instance, handle);
+      if ($container.data('vdModalOpen')) {
+        return; // one modal per field
+      }
+      openModal($container, instance);
     });
-    $row.append($btn);
+
+    // Place it after the last real button (Add / Upload files) rather than at
+    // the end of the row — Craft 5.8+ can render a search input in the same row.
+    var $anchor = $row.children('.btn').last();
+    if ($anchor.length) {
+      $btn.insertAfter($anchor);
+    } else {
+      $row.append($btn);
+    }
   }
 
   /* ------------------------------------------------------------------ modal */
 
-  function openModal($container, instance, handle) {
+  function openModal($container, instance) {
     var $modal = $(
       '<form class="modal vd-modal">' +
         '<div class="body">' +
@@ -139,10 +178,12 @@
       '</form>'
     );
 
-    var poll = { timer: null };
+    var poll = { timer: null, count: 0 };
+    $container.data('vdModalOpen', true);
     var modal = new Garnish.Modal($modal, {
       resizable: false,
       onHide: function () {
+        $container.data('vdModalOpen', false);
         if (poll.timer) {
           clearTimeout(poll.timer);
           poll.timer = null;
@@ -163,6 +204,7 @@
     var $barFill = $modal.find('.vd-bar-fill');
     var $stats = $modal.find('.vd-stats');
     var metaShown = false;
+    var submitting = false;
 
     setTimeout(function () {
       $url.trigger('focus');
@@ -174,6 +216,7 @@
     }
 
     function busy(isBusy, label) {
+      submitting = isBusy;
       $submit.toggleClass('loading', isBusy).prop('disabled', isBusy).text(label || Craft.t('app', 'Download'));
       $url.prop('disabled', isBusy);
     }
@@ -220,14 +263,23 @@
 
     $modal.on('submit', function (ev) {
       ev.preventDefault();
+      if (submitting) {
+        return; // no overlapping submissions
+      }
       var url = $.trim($url.val());
       if (!url) {
         error(Craft.t('app', 'Please enter a URL.'));
         $url.trigger('focus');
         return;
       }
+      if (typeof instance.canAddMoreElements === 'function' && !instance.canAddMoreElements()) {
+        error(Craft.t('app', 'This field is full — remove an asset before downloading another.'));
+        return;
+      }
+
       busy(true, Craft.t('app', 'Starting…'));
       metaShown = false;
+      poll.count = 0;
       $bar.addClass('vd-bar--indeterminate');
       $barFill.css('width', '0%');
       $vtitle.text('');
@@ -254,6 +306,7 @@
     });
 
     function startPolling(jobId, startedAt) {
+      var delay = ++poll.count > POLL_SLOW_AFTER ? POLL_INTERVAL_SLOW : POLL_INTERVAL;
       poll.timer = setTimeout(function () {
         if (Date.now() - startedAt > POLL_TIMEOUT) {
           busy(false);
@@ -277,7 +330,7 @@
             busy(false);
             error(errorMessage(err));
           });
-      }, POLL_INTERVAL);
+      }, delay);
     }
 
     function attachAsset(result) {
@@ -290,24 +343,23 @@
       $bar.removeClass('vd-bar--indeterminate');
       $barFill.css('width', '100%');
 
-      Craft.sendActionRequest('POST', 'elements/get-element-html', {
-        data: {
-          elementId: result.assetId,
-          siteId: result.siteId || editContext($container).siteId,
-          context: 'field',
-          thumbSize: 'small',
-        },
-      })
-        .then(function (resp) {
-          var data = resp.data || {};
-          if (data.headHtml) {
-            Craft.appendHeadHtml(data.headHtml);
+      var siteId = result.siteId
+        || (instance.settings && instance.settings.criteria && instance.settings.criteria.siteId)
+        || editContext($container).siteId
+        || Craft.siteId;
+
+      fetchElementInfo(instance, result.assetId, siteId)
+        .then(function (info) {
+          if (typeof instance.canAddMoreElements === 'function' && !instance.canAddMoreElements()) {
+            busy(false);
+            error(Craft.t('app', 'The video was downloaded, but this field is now full. Add it from the volume after making room.'));
+            return;
           }
-          var $element = $(data.html);
-          var info = Craft.getElementInfo($element);
-          instance.selectElements([info]);
-          modal.hide();
-          Craft.cp.displayNotice(Craft.t('app', 'Video added — Save the entry to keep it.'));
+          // selectElements() is async on Craft 5 — wait for the chip to land.
+          return Promise.resolve(instance.selectElements([info])).then(function () {
+            modal.hide();
+            Craft.cp.displayNotice(Craft.t('app', 'Video added — save to keep it.'));
+          });
         })
         .catch(function (err) {
           busy(false);
@@ -316,16 +368,86 @@
     }
   }
 
+  /**
+   * Render one asset chip/card and return the element info selectElements()
+   * expects. Craft 4 and Craft 5 use different endpoints for this.
+   */
+  function fetchElementInfo(instance, assetId, siteId) {
+    if (!isCraft5()) {
+      return Craft.sendActionRequest('POST', 'elements/get-element-html', {
+        data: { elementId: assetId, siteId: siteId, context: 'field', thumbSize: 'small' },
+      }).then(function (resp) {
+        var data = resp.data || {};
+        if (data.headHtml) {
+          Craft.appendHeadHtml(data.headHtml);
+        }
+        return Craft.getElementInfo($(data.html));
+      });
+    }
+
+    // Craft 5: app/render-elements — same call AssetSelectInput makes after an
+    // upload, with ui/size derived from the field's view mode.
+    var s = instance.settings || {};
+    var viewMode = s.viewMode || 'list';
+    var chipModes = ['list', 'list-inline', 'large', 'thumbs'];
+    var largeModes = ['large', 'thumbs'];
+    return Craft.sendActionRequest('POST', 'app/render-elements', {
+      data: {
+        elements: [{
+          type: 'craft\\elements\\Asset',
+          id: assetId,
+          siteId: siteId,
+          instances: [{
+            context: 'field',
+            ui: chipModes.indexOf(viewMode) !== -1 ? 'chip' : 'card',
+            size: largeModes.indexOf(viewMode) !== -1 ? 'large' : 'small',
+            showActionMenu: !!s.showActionMenu,
+          }],
+        }],
+      },
+    }).then(function (resp) {
+      var data = resp.data || {};
+      var html = data.elements && data.elements[assetId] && data.elements[assetId][0];
+      if (!html) {
+        throw new Error(Craft.t('app', 'Could not render the new asset.'));
+      }
+      var info = Craft.getElementInfo(html);
+      if (data.headHtml) {
+        Craft.appendHeadHtml(data.headHtml);
+      }
+      if (data.bodyHtml && Craft.appendBodyHtml) {
+        Craft.appendBodyHtml(data.bodyHtml);
+      }
+      return info;
+    });
+  }
+
   /* -------------------------------------------------------------- helpers */
 
+  /**
+   * The element id + site id of the element being edited. Prefers the
+   * Craft.ElementEditor instance attached to the surrounding form (works in
+   * slideouts, where hidden inputs are namespaced); falls back to the hidden
+   * inputs with a namespace-tolerant selector.
+   */
   function editContext($container) {
     var $form = $container.closest('form');
+
+    var editor = $form.data('elementEditor');
+    if (editor && editor.settings) {
+      return {
+        elementId: editor.settings.elementId || editor.settings.canonicalId || '',
+        siteId: editor.settings.siteId || (typeof Craft.siteId !== 'undefined' ? Craft.siteId : ''),
+      };
+    }
+
     var elementId =
-      $form.find('input[name=elementId]').val() ||
-      $form.find('input[name=draftId]').val() ||
-      $form.find('input[name=canonicalId]').val() ||
+      $form.find('input[name=elementId], input[name$="[elementId]"]').first().val() ||
+      $form.find('input[name=canonicalId], input[name$="[canonicalId]"]').first().val() ||
       '';
-    var siteId = $form.find('input[name=siteId]').val() || (typeof Craft.siteId !== 'undefined' ? Craft.siteId : '');
+    var siteId =
+      $form.find('input[name=siteId], input[name$="[siteId]"]').first().val() ||
+      (typeof Craft.siteId !== 'undefined' ? Craft.siteId : '');
     return { elementId: elementId, siteId: siteId };
   }
 

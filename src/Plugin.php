@@ -52,13 +52,17 @@ class Plugin extends BasePlugin
     protected function settingsHtml(): ?string
     {
         // Offer the site's Assets fields so an admin can pick which ones get the
-        // button when the mode is "list". Passing `false` to getFieldsByType()
-        // includes fields nested in Matrix/Neo/Super Table blocks, not just the
-        // global context. De-dupe by handle (matching is handle-based) and flag
-        // the block-nested ones.
+        // button when the mode is "list". getAllFields(false) enumerates every
+        // context — on Craft 4 that includes fields nested in Matrix/Neo/Super
+        // Table block types; on Craft 5 all fields are global anyway. (We avoid
+        // getFieldsByType(), which only exists since Craft 4.4.) De-dupe by
+        // handle (matching is handle-based) and flag the block-nested ones.
         $assetFields = [];
         $seen = [];
-        foreach (Craft::$app->getFields()->getFieldsByType(\craft\fields\Assets::class, false) as $field) {
+        foreach (Craft::$app->getFields()->getAllFields(false) as $field) {
+            if (!$field instanceof \craft\fields\Assets) {
+                continue;
+            }
             if (isset($seen[$field->handle])) {
                 continue;
             }
@@ -99,6 +103,9 @@ class Plugin extends BasePlugin
                     'mode'            => $settings->mode,
                     'handles'         => array_values($settings->fieldHandles),
                     'videoFieldsOnly' => $settings->videoFieldsOnly,
+                    // Lets the JS pick the right render endpoint (Craft 5 replaced
+                    // elements/get-element-html with app/render-elements).
+                    'craft'           => Craft::$app->getVersion(),
                 ]);
             }
         );

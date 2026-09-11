@@ -1,5 +1,6 @@
 /vendor/
 composer.lock
+tests/js/node_modules/
 .idea/
 .vscode/
 .DS_Store
