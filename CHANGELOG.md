@@ -1,6 +1,10 @@
 # Changelog
 
-## 2.0.0 — unreleased
+## 2.0.1 — 2026-09-11
+
+- Documentation: set the 2.0.0 release date in the changelog.
+
+## 2.0.0 — 2026-09-11
 
 Compatibility, security and reliability release. Craft 4 **and** Craft 5 are now
 supported from this single codebase.
