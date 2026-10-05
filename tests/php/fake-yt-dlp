@@ -21,6 +21,12 @@ array_shift($argvIn);
 
 $mode = getenv('VD_FAKE_MODE') ?: 'success';
 
+// Optional argv capture so tests can assert exactly what yt-dlp was handed.
+$dump = getenv('VD_FAKE_DUMP_ARGS');
+if ($dump) {
+    file_put_contents($dump, json_encode($argvIn));
+}
+
 // argv hygiene: find `--`; everything after it is positional.
 $sepIndex = array_search('--', $argvIn, true);
 if ($sepIndex === false) {

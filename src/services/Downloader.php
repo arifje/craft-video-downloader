@@ -54,11 +54,25 @@ final class Downloader
         'ts', 'm2ts', 'mts', 'ogv', 'ogg', 'mp3', 'm4a', 'aac', 'wav', 'opus',
     ];
 
+    /** Default resolution profile (short side, px): ~1080p, blocks 4K. */
+    public const DEFAULT_MAX_RESOLUTION = 1080;
+
+    /** Smallest accepted resolution profile; lower values are clamped up. */
+    public const MIN_RESOLUTION = 144;
+
+    /** Largest accepted resolution profile (8K); larger values are clamped. */
+    public const MAX_RESOLUTION_LIMIT = 4320;
+
     public function __construct(
         private readonly string $ytDlpPath,
         private readonly string $format,
         private readonly int $maxFilesizeMb,
         private readonly int $timeout,
+        /**
+         * Resolution ceiling as a short-side profile (0 = no cap, use $format
+         * verbatim). See {@see buildFormatSelector()} for the semantics.
+         */
+        private readonly int $maxResolution = 0,
         /** @var string[] */
         private readonly array $allowedHosts = [],
         /** Overrides Craft's temp path; lets tests run without a Craft app. */
@@ -73,8 +87,76 @@ final class Downloader
             $settings->format,
             (int) $settings->maxFilesizeMb,
             (int) $settings->timeout,
+            $settings->getResolvedMaxResolution(),
             $settings->getAllowedHostsList(),
         );
+    }
+
+    /**
+     * Clamp a resolution profile to a sane range. 0 (and negative values)
+     * means "no cap"; anything else lands between MIN_RESOLUTION and
+     * MAX_RESOLUTION_LIMIT.
+     */
+    public static function normalizeResolution(int $resolution): int
+    {
+        if ($resolution <= 0) {
+            return 0;
+        }
+        return max(self::MIN_RESOLUTION, min(self::MAX_RESOLUTION_LIMIT, $resolution));
+    }
+
+    /**
+     * Build a hard-capped yt-dlp format selector for a resolution profile.
+     *
+     * The profile is orientation-aware: 1080 admits landscape up to 1920x1080
+     * AND portrait up to 1080x1920 (Reels/TikTok/Shorts), instead of a naive
+     * height<=1080 that would reject portrait HD. Each tier therefore has a
+     * landscape-capped branch followed by a portrait-capped one; the
+     * wrong-orientation branch simply matches nothing and falls through.
+     *
+     * Tier order mirrors this plugin's default format (pre-merged mp4 first so
+     * ffmpeg merging stays a fallback, not a requirement): pre-merged mp4 →
+     * split video+audio → any pre-merged. Every branch carries the cap, so
+     * yt-dlp fails ("Requested format is not available") rather than silently
+     * downloading a larger stream when nothing fits. The `<=?` operator passes
+     * formats that don't expose width/height, so platforms serving a single
+     * dimensionless format keep working. Audio is never capped.
+     */
+    public static function buildFormatSelector(int $maxResolution): string
+    {
+        $short = self::normalizeResolution($maxResolution);
+        $long  = (int) round($short * 16 / 9);
+
+        $caps = [
+            "[height<=?{$short}][width<=?{$long}]", // landscape (and square)
+            "[width<=?{$short}][height<=?{$long}]", // portrait
+        ];
+
+        $branches = [];
+        foreach ($caps as $cap) {
+            $branches[] = "b[ext=mp4]{$cap}";   // pre-merged mp4, no ffmpeg needed
+        }
+        foreach ($caps as $cap) {
+            $branches[] = "bv*{$cap}+ba";       // split streams, merged to mp4
+        }
+        foreach ($caps as $cap) {
+            $branches[] = "b{$cap}";            // any pre-merged format
+        }
+
+        return implode('/', $branches);
+    }
+
+    /**
+     * The format selector a download will actually use: the hard-capped
+     * resolution-profile selector when a cap is set, the configured format
+     * string otherwise.
+     */
+    public function effectiveFormat(): string
+    {
+        if ($this->maxResolution > 0) {
+            return self::buildFormatSelector($this->maxResolution);
+        }
+        return $this->format;
     }
 
     /* --------------------------------------------------------------- URLs */
@@ -297,7 +379,7 @@ final class Downloader
 
         $cmd = [
             $this->ytDlpPath,
-            '-f', $this->format,
+            '-f', $this->effectiveFormat(),
             '-o', $outputTemplate,
             '--merge-output-format', 'mp4',
             '--no-playlist',

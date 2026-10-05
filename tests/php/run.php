@@ -63,6 +63,7 @@ function makeDownloader(string $scratch, array $overrides = []): Downloader
         'mp4/best',
         $overrides['maxMb'] ?? 500,
         $overrides['timeout'] ?? 30,
+        $overrides['maxResolution'] ?? 0,
         // Allow-listed so normalizeUrl never touches DNS — tests stay offline.
         $overrides['allowedHosts'] ?? ['example-cdn.test'],
         $scratch,
@@ -166,6 +167,48 @@ check('probe returns metadata', is_array($meta) && $meta['title'] === 'Fake Vide
 
 putenv('VD_FAKE_MODE=success');
 check('missing binary reported clearly', throws(fn() => makeDownloader($scratch, ['bin' => '/nonexistent/yt-dlp-xyz'])->download('https://videos.example-cdn.test/8'), 'Could not run yt-dlp'));
+
+/* ------------------------------------------------------ resolution ceiling */
+echo "Resolution ceiling\n";
+
+check('normalize: 0 means no cap', Downloader::normalizeResolution(0) === 0);
+check('normalize: negative disables', Downloader::normalizeResolution(-5) === 0);
+check('normalize: clamps up to 144', Downloader::normalizeResolution(50) === 144);
+check('normalize: passes 1080 through', Downloader::normalizeResolution(1080) === 1080);
+check('normalize: clamps down to 4320', Downloader::normalizeResolution(99999) === 4320);
+
+$sel = Downloader::buildFormatSelector(1080);
+check('selector: landscape cap present', str_contains($sel, '[height<=?1080][width<=?1920]'));
+check('selector: portrait cap present', str_contains($sel, '[width<=?1080][height<=?1920]'));
+$branches = explode('/', $sel);
+check('selector: six branches', count($branches) === 6);
+$allCapped = true;
+foreach ($branches as $b) {
+    if (!str_contains($b, '<=?')) {
+        $allCapped = false;
+    }
+}
+check('selector: every branch carries the cap', $allCapped, $sel);
+check('selector: pre-merged mp4 tier first', str_starts_with($branches[0], 'b[ext=mp4]'));
+check('selector: split-stream tier present', str_contains($sel, '+ba'));
+check('selector: 720 profile has 1280 long side', str_contains(Downloader::buildFormatSelector(720), '[height<=?720][width<=?1280]'));
+
+putenv('VD_FAKE_MODE=success');
+$dumpFile = $scratch . '/args.json';
+putenv('VD_FAKE_DUMP_ARGS=' . $dumpFile);
+
+$res = makeDownloader($scratch, ['maxResolution' => 1080])->download('https://videos.example-cdn.test/cap');
+$args = json_decode((string) file_get_contents($dumpFile), true);
+$fIdx = array_search('-f', $args, true);
+check('argv: -f carries the capped selector', $fIdx !== false && ($args[$fIdx + 1] ?? '') === Downloader::buildFormatSelector(1080));
+makeDownloader($scratch)->removeDir($res['dir']);
+
+$res = makeDownloader($scratch)->download('https://videos.example-cdn.test/nocap');
+$args = json_decode((string) file_get_contents($dumpFile), true);
+$fIdx = array_search('-f', $args, true);
+check('argv: no cap leaves the format setting untouched', $fIdx !== false && ($args[$fIdx + 1] ?? '') === 'mp4/best');
+makeDownloader($scratch)->removeDir($res['dir']);
+putenv('VD_FAKE_DUMP_ARGS');
 
 /* --------------------------------------------------- cleanup containment */
 echo "Cleanup containment\n";

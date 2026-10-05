@@ -49,9 +49,18 @@
     required: true,
 }) }}
 
+{{ forms.autosuggestField({
+    label: 'Max resolution'|t('app'),
+    instructions: 'Resolution ceiling as a profile: 1080 allows up to 1920x1080 landscape and 1080x1920 portrait (Reels, TikTok, Shorts) while blocking 4K. Supports an environment variable such as `$VIDEO_DOWNLOADER_MAX_RESOLUTION`. Leave empty or set 0 for no limit. Sensible values: 720, 1080, 1440.'|t('app'),
+    name: 'maxResolution',
+    value: settings.maxResolution,
+    suggestEnvVars: true,
+    size: 24,
+}) }}
+
 {{ forms.textField({
     label: 'Format'|t('app'),
-    instructions: 'yt-dlp `-f` format selector. The default prefers a single progressive mp4 and only merges separate streams (needs ffmpeg) when nothing else is available.'|t('app'),
+    instructions: 'yt-dlp `-f` format selector, only used when Max resolution is empty or 0 (with a ceiling active the plugin builds its own capped selector). The default prefers a single progressive mp4 and only merges separate streams (needs ffmpeg) when nothing else is available.'|t('app'),
     name: 'format',
     value: settings.format,
     required: true,

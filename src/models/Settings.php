@@ -48,8 +48,21 @@ class Settings extends Model
      * yt-dlp `-f` format selector. The default prefers a single progressive mp4
      * (no ffmpeg merge needed) and only falls back to a separate video+audio
      * merge — which requires ffmpeg — when that's all that's on offer.
+     * Only applied when {@see $maxResolution} is empty/0; with a resolution
+     * ceiling active the plugin builds a hard-capped selector instead.
      */
     public string $format = 'mp4/bestvideo*+bestaudio/best';
+
+    /**
+     * Resolution ceiling for downloads, as a short-side profile: 1080 admits
+     * landscape up to 1920x1080 AND portrait up to 1080x1920 (Reels/TikTok/
+     * Shorts), while excluding 4K. Supports Craft's env syntax, e.g.
+     * `$VIDEO_DOWNLOADER_MAX_RESOLUTION`. Empty or 0 disables the cap (the
+     * raw {@see $format} selector applies instead); an unresolvable value
+     * falls back to 1080 so the cap fails closed. Sensible values: 720, 1080,
+     * 1440. Read it via {@see getResolvedMaxResolution()}.
+     */
+    public string $maxResolution = '1080';
 
     /** Hard ceiling on the downloaded file size, in megabytes (yt-dlp --max-filesize). */
     public int $maxFilesizeMb = 500;
@@ -71,7 +84,7 @@ class Settings extends Model
             [['enabled', 'videoFieldsOnly'], 'boolean'],
             [['mode'], 'in', 'range' => [self::MODE_ALL, self::MODE_LIST]],
             [['fieldHandles'], 'each', 'rule' => ['string']],
-            [['ytDlpPath', 'format', 'allowedHosts'], 'string'],
+            [['ytDlpPath', 'format', 'maxResolution', 'allowedHosts'], 'string'],
             [['ytDlpPath', 'format'], 'required'],
             [['maxFilesizeMb', 'timeout'], 'integer', 'min' => 1],
         ];
@@ -116,6 +129,24 @@ class Settings extends Model
     public function getResolvedYtDlpPath(): string
     {
         return App::parseEnv($this->ytDlpPath) ?: 'yt-dlp';
+    }
+
+    /**
+     * The resolution ceiling with any `$ENV_VAR` syntax expanded and the value
+     * clamped to a sane range. Returns 0 when the cap is explicitly disabled
+     * (empty or "0"); a non-numeric value (e.g. an unset env var reference)
+     * falls back to the default profile so the cap fails closed.
+     */
+    public function getResolvedMaxResolution(): int
+    {
+        $raw = trim((string) App::parseEnv($this->maxResolution));
+        if ($raw === '' || $raw === '0') {
+            return 0;
+        }
+        if (!is_numeric($raw)) {
+            return \arifje\craftvideodownloader\services\Downloader::DEFAULT_MAX_RESOLUTION;
+        }
+        return \arifje\craftvideodownloader\services\Downloader::normalizeResolution((int) $raw);
     }
 
     /** Bytes form of {@see $maxFilesizeMb}, or 0 when no limit is desired. */

@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.1.0 — 2026-10-05
+
+### Added
+- **Max resolution** setting (default **1080**): a resolution ceiling applied as
+  an orientation-aware profile — 1080 allows up to 1920x1080 landscape AND
+  1080x1920 portrait (Reels/TikTok/Shorts) while blocking 4K. Accepts an env
+  var reference (e.g. `$VIDEO_DOWNLOADER_MAX_RESOLUTION`); empty or 0 disables
+  the cap; an unresolvable value falls back to 1080 (fail-closed). While a
+  ceiling is active the plugin builds a hard-capped yt-dlp selector (pre-merged
+  mp4 first, every fallback capped — a video only available above the limit
+  fails cleanly instead of silently exceeding it) and the **Format** setting is
+  not used.
+
+### Changed
+- Downloads are now capped at the 1080 profile **by default**. Set Max
+  resolution to 0 (or empty) to restore the previous unlimited behavior with
+  your own Format selector.
+- The README config-file example now uses `craft\helpers\App::env()` instead of
+  `getenv()`.
+
 ## 2.0.1 — 2026-09-11
 
 - Documentation: set the 2.0.0 release date in the changelog.

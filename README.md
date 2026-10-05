@@ -69,10 +69,30 @@ Settings live at **Settings → Plugins → Video Downloader**:
 | **Fields** | – | The Assets fields that get the button when “Apply to” is set to a list. |
 | **Video-capable fields only** | on | Only show the button on fields that accept video (no file-type restriction, or *Video* among the allowed types). Leave on to skip image-only fields. |
 | **yt-dlp path** | `yt-dlp` | Absolute path, or an env var like `$VIDEO_DOWNLOADER_YTDLP`. |
-| **Format** | `mp4/bestvideo*+bestaudio/best` | yt-dlp `-f` selector. The default avoids needing ffmpeg unless a merge is unavoidable. |
+| **Max resolution** | `1080` | Resolution ceiling as a profile (short side): 1080 allows up to 1920x1080 landscape and 1080x1920 portrait while blocking 4K. Accepts an env var like `$VIDEO_DOWNLOADER_MAX_RESOLUTION`. Empty or `0` = no limit. |
+| **Format** | `mp4/bestvideo*+bestaudio/best` | yt-dlp `-f` selector, only used when **Max resolution** is empty/0 (a ceiling builds its own capped selector). The default avoids needing ffmpeg unless a merge is unavoidable. |
 | **Max file size** | 500 MB | Hard cap (`--max-filesize`). |
 | **Timeout** | 300 s | Wall-clock limit for the yt-dlp process. |
 | **Allowed hosts** | *(any)* | Optional allow-list, one hostname per line. Sub-domains match too. |
+
+### Capping resolution from `.env`
+
+Out of the box downloads are capped at the **1080 profile** (no 4K). The cap is orientation-aware: it admits landscape up to 1920x1080 *and* portrait up to 1080x1920 (Reels, TikTok, Shorts), instead of a naive height cap that would reject portrait HD. While a ceiling is active the plugin builds a hard-capped yt-dlp selector in which **every** fallback carries the cap, so a video only available above the limit fails cleanly rather than silently exceeding it; the **Format** setting applies only when the ceiling is off.
+
+To drive the value from `.env`, set the **Max resolution** field to the env var once:
+
+```
+$VIDEO_DOWNLOADER_MAX_RESOLUTION
+```
+
+and per environment:
+
+```bash
+# .env
+VIDEO_DOWNLOADER_MAX_RESOLUTION=1080   # 720 / 1440 also sensible; 0 = no limit
+```
+
+If the referenced env var is missing, the cap falls back to 1080 (fail-closed).
 
 ### Overriding from a config file
 
@@ -80,8 +100,12 @@ Like any Craft plugin, these can be overridden per-environment with a `config/vi
 
 ```php
 <?php
+
+use craft\helpers\App;
+
 return [
-    'ytDlpPath'     => getenv('VIDEO_DOWNLOADER_YTDLP') ?: '/usr/local/bin/yt-dlp',
+    'ytDlpPath'     => App::env('VIDEO_DOWNLOADER_YTDLP') ?? '/usr/local/bin/yt-dlp',
+    'maxResolution' => App::env('VIDEO_DOWNLOADER_MAX_RESOLUTION') ?? '1080',
     'maxFilesizeMb' => 750,
     'timeout'       => 600,
     'allowedHosts'  => "youtube.com\nyoutu.be\ntiktok.com\ninstagram.com",
