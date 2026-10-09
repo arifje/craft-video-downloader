@@ -37,6 +37,12 @@ class DownloadJob extends BaseJob implements RetryableJobInterface
     public ?int $siteId = null;
     public ?int $uploaderId = null;
 
+    /** Format preset chosen in the modal's options step; null = default selector. */
+    public ?string $preset = null;
+
+    /** Short-side resolution chosen in the options step (0 = best allowed). */
+    public int $resolution = 0;
+
     public function getTtr(): int
     {
         $timeout = 300;
@@ -124,7 +130,7 @@ class DownloadJob extends BaseJob implements RetryableJobInterface
             // --- metadata first, so the UI can show what's being fetched ----
             $store->update($this->jobId, ['stage' => 'extracting', 'progress' => 0.1]);
             $this->setProgress($queue, 0.1, 'Reading video info');
-            $meta = $downloader->probe($this->url);
+            $meta = $this->preset === null ? $downloader->probe($this->url) : null;
             if ($meta) {
                 $store->update($this->jobId, ['meta' => $meta]);
             }
@@ -157,7 +163,19 @@ class DownloadJob extends BaseJob implements RetryableJobInterface
                 $this->setProgress($queue, $overall, 'Downloading');
             };
 
-            $download = $downloader->download($this->url, $onProgress);
+            if ($this->preset !== null) {
+                $download = $downloader->download(
+                    $this->url,
+                    $onProgress,
+                    Downloader::buildToolSelector(
+                        Downloader::clampToCeiling($this->resolution, $downloader->maxResolution()),
+                        $this->preset,
+                    ),
+                    Downloader::mergeFormatForPreset($this->preset),
+                );
+            } else {
+                $download = $downloader->download($this->url, $onProgress);
+            }
             $dir = $download['dir'];
 
             // --- honour the field's accepted file kinds ---------------------

@@ -245,13 +245,7 @@ final class Downloader
      */
     public static function buildFormatSelector(int $maxResolution): string
     {
-        $short = self::normalizeResolution($maxResolution);
-        $long  = (int) round($short * 16 / 9);
-
-        $caps = [
-            "[height<=?{$short}][width<=?{$long}]", // landscape (and square)
-            "[width<=?{$short}][height<=?{$long}]", // portrait
-        ];
+        $caps = self::orientationCaps(self::normalizeResolution($maxResolution));
 
         $branches = [];
         foreach ($caps as $cap) {
@@ -265,6 +259,26 @@ final class Downloader
         }
 
         return implode('/', $branches);
+    }
+
+    /**
+     * The two format filters of a resolution profile: one for landscape (and
+     * square) formats, one for portrait. Each is pinned to its orientation
+     * with `aspect_ratio`, because yt-dlp takes the FIRST alternative that
+     * matches: without the pin, the landscape rule (height <= 1080) also
+     * matches a low-res portrait stream such as 480x852, so a 1080x1920
+     * portrait video was downloaded at 480p. Formats without dimensions pass
+     * both (`?`), keeping dimensionless single-format sites working.
+     *
+     * @return array{0:string,1:string}
+     */
+    public static function orientationCaps(int $short): array
+    {
+        $long = (int) round($short * 16 / 9);
+        return [
+            "[aspect_ratio>=?1][height<=?{$short}][width<=?{$long}]", // landscape + square
+            "[aspect_ratio<?1][width<=?{$short}][height<=?{$long}]",  // portrait
+        ];
     }
 
     /**
@@ -450,15 +464,7 @@ final class Downloader
         }
 
         $short = self::normalizeResolution($resolution);
-        if ($short > 0) {
-            $long = (int) round($short * 16 / 9);
-            $caps = [
-                "[height<=?{$short}][width<=?{$long}]", // landscape (and square)
-                "[width<=?{$short}][height<=?{$long}]", // portrait
-            ];
-        } else {
-            $caps = [''];
-        }
+        $caps = $short > 0 ? self::orientationCaps($short) : [''];
 
         $branches = [];
         if ($preset === self::PRESET_COMPATIBLE) {

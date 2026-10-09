@@ -195,6 +195,10 @@ foreach ($branches as $b) {
 check('selector: every branch carries the cap', $allCapped, $sel);
 check('selector: pre-merged mp4 tier first', str_starts_with($branches[0], 'b[ext=mp4]'));
 check('selector: split-stream tier present', str_contains($sel, '+ba'));
+check('caps pinned to orientation', Downloader::orientationCaps(1080) === ['[aspect_ratio>=?1][height<=?1080][width<=?1920]', '[aspect_ratio<?1][width<=?1080][height<=?1920]']);
+$capped = true;
+foreach (explode('/', $sel) as $b) { if (!str_contains($b, 'aspect_ratio')) { $capped = false; } }
+check('selector: every branch orientation-pinned', $capped, $sel);
 check('selector: 720 profile has 1280 long side', str_contains(Downloader::buildFormatSelector(720), '[height<=?720][width<=?1280]'));
 
 putenv('VD_FAKE_MODE=success');
@@ -251,7 +255,7 @@ check('no-dimension formats give no options', Downloader::summarizeFormats(['for
 echo "Download tool: selectors + clamping\n";
 check('labels', Downloader::resolutionLabel(2160) === '4K' && Downloader::resolutionLabel(4320) === '8K' && Downloader::resolutionLabel(720) === '720p');
 $sel = Downloader::buildToolSelector(1080, Downloader::PRESET_COMPATIBLE);
-check('compatible: H.264 mp4 + m4a first', str_starts_with($sel, 'bv*[vcodec^=avc1][ext=mp4][height<=?1080][width<=?1920]+ba[ext=m4a]'));
+check('compatible: H.264 mp4 + m4a first', str_starts_with($sel, 'bv*[vcodec^=avc1][ext=mp4][aspect_ratio>=?1][height<=?1080][width<=?1920]+ba[ext=m4a]'));
 $capped = true;
 foreach (explode('/', $sel) as $b) { if (!str_contains($b, '<=?')) { $capped = false; } }
 check('compatible: every branch capped', $capped);

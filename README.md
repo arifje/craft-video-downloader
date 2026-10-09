@@ -11,7 +11,7 @@ Compatible with **Craft CMS 4 and Craft CMS 5** from a single codebase (`^4.0 ||
 ## How it works
 
 1. The plugin adds a **Scrape URL** button to Assets fields in the control panel (all of them, or a chosen list) — including fields nested inside **Matrix / Neo / Super Table** blocks.
-2. Clicking it opens a small modal where you paste a video URL.
+2. Clicking it opens a modal: paste a video URL and click **Show options**. The modal lists every available resolution (dimensions, fps, estimated size; anything above your limits is shown but disabled) and lets you choose **MP4** (H.264) or **Best quality**. The highest allowed resolution is pre-selected; click **Download**.
 3. On submit the plugin authorizes the request (see [Permissions & security](#permissions--security)), resolves the field's upload folder exactly like a manual upload would, and queues a job that runs `yt-dlp` and creates an Asset from the result.
 4. While it runs, the modal shows the video's **title, uploader, duration, resolution and thumbnail** plus a **live progress bar** (percent, speed, ETA, downloaded / total).
 5. When the download finishes, the new video is dropped into the field automatically.
@@ -204,8 +204,10 @@ Two executable suites live in `tests/` and run with **no Craft installation and 
 
 ```bash
 php tests/php/run.php                      # URL/SSRF guard, download pipeline, cleanup, JobStore, tool formats + storage
-cd tests/js && npm install && npm test     # CP JS: field button + download tool (options, phone share, desktop download)
+cd tests/js && npm install && npm test     # CP JS: field button + modal options step + download tool
 ```
+
+`tests/live/selectors.sh` (needs Docker and network; simulate only, nothing is downloaded) runs the plugin's real format selectors through a current yt-dlp and prints which format each resolution and preset picks, for a portrait and a landscape video. Re-run it when a platform changes its formats.
 
 An end-to-end script drives a real Craft install over HTTP (logins, CP page, nav item, permissions, inspect, queued download, owner-only file delivery, the disable switch) with the stub yt-dlp:
 

@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.4.0 - 2026-10-09
+
+### Fixed
+- **Portrait videos downloaded at a low resolution** (e.g. a 1080x1920 X/
+  Reels/TikTok video came back as 480x852, 1.3 MB instead of 1080p). Each
+  resolution rule had a landscape and a portrait branch, and yt-dlp takes
+  the first branch that matches: the landscape rule (height up to 1080) also
+  matched small portrait streams. Both branches are now pinned to their
+  orientation with `aspect_ratio`, for the field button, the download tool
+  and the default selector. Verified with real yt-dlp on portrait and
+  landscape X videos at 1080/720/480 for every preset (18/18 correct).
+
+### Added
+- **Choose the version in the field modal**: "Show options" lists every
+  available resolution (dimensions, fps, estimated size; over-limit ones
+  disabled) plus MP4 / Best quality, with the same loading indicator as the
+  tool page. The download uses the chosen version; editing the URL resets
+  the choices. New `video-downloader/download/inspect` action, gated like
+  `create` (CP access, plugin enabled, field allowed).
+- `tests/live/selectors.sh`: re-runs the real selectors through a current
+  yt-dlp (simulate only) to catch platform format changes.
+- e2e now also drives the field options step on Craft 4 and 5 and asserts
+  the exact `-f` selector yt-dlp receives (31/31 on both).
+
 ## 2.3.0 - 2026-10-09
 
 ### Fixed

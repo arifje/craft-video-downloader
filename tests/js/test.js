@@ -53,6 +53,7 @@ function boot(settingsVar, fields) {
   win.Garnish = {
     $doc: { ready: (fn) => readyFns.push(fn) },
     Modal: function ($el, opts) {
+      this.$el = $el;
       modals.push(this);
       this.opts = opts || {};
       this.hide = () => { this.opts.onHide && this.opts.onHide(); };
@@ -195,8 +196,76 @@ console.log('Modal open guard');
   t.close();
 }
 
-console.log(`\n${pass} passed, ${fail} failed`);
-if (fail > 0) {
-  failures.forEach((f) => console.log(`FAIL: ${f}`));
-  process.exit(1);
-}
+/* --------------------------- two-step options flow ----------------------- */
+console.log('Field modal: options step');
+(async () => {
+  const t = boot({ mode: 'all', handles: [], videoFieldsOnly: false, craft: '4.18.1' }, [
+    { key: 'plain', name: 'fields[videos]', fieldId: 7, kind: ['video'] },
+  ]);
+  t.fireReady();
+  const calls = [];
+  let releaseInspect;
+  t.win.Craft.sendActionRequest = (m, action, opts) => {
+    calls.push({ action, data: opts && opts.data });
+    if (action === 'video-downloader/download/inspect') {
+      return new t.win.Promise((res) => { releaseInspect = () => res({ data: {
+        success: true, url: 'https://x.com/a/status/1', maxResolution: 1080, maxFilesizeMb: 500,
+        meta: { title: 'Portrait clip', uploader: 'DJ', duration: 30, extractor: 'Twitter' },
+        options: [
+          { resolution: 2160, label: '4K', width: 2160, height: 3840, allowed: false, reason: 'ceiling' },
+          { resolution: 1080, label: '1080p', width: 1080, height: 1920, fps: 30, estimatedBytes: 24e6, allowed: true },
+          { resolution: 480, label: '480p', width: 480, height: 852, estimatedBytes: 2e6, allowed: true },
+        ],
+      } }); });
+    }
+    return new t.win.Promise(() => {}); // create/status: keep pending
+  };
+  t.$(t.win.document.querySelector('.vd-scrape-btn')).trigger('click');
+  const $m = t.modals[0].$el;
+  const submit = () => $m.trigger('submit');
+  check('submit starts as "Show options"', $m.find('.vd-submit').text() === 'Show options');
+  $m.find('.vd-url').val('https://x.com/a/status/1');
+  submit();
+  check('inspect called with field id', calls[0] && calls[0].action === 'video-downloader/download/inspect' && calls[0].data.fieldId === 7);
+  check('loading row visible while inspecting', $m.find('.vd-loading').attr('hidden') === undefined);
+  releaseInspect();
+  await new Promise((r) => setTimeout(r, 10));
+  check('loading row hidden after', $m.find('.vd-loading').attr('hidden') !== undefined);
+  check('options visible', $m.find('.vd-options').attr('hidden') === undefined);
+  check('video title shown', $m.find('.vd-otitle').text() === 'Portrait clip');
+  const radios = $m.find('.vd-res input');
+  check('one radio per resolution', radios.length === 3);
+  check('4K disabled', radios.eq(0).prop('disabled') === true);
+  check('1080p preselected', radios.eq(1).prop('checked') === true);
+  check('button now "Download"', $m.find('.vd-submit').text() === 'Download');
+
+  radios.eq(2).prop('checked', true);
+  $m.find('input[value="best"]').prop('checked', true);
+  submit();
+  const create = calls.find((c) => c.action === 'video-downloader/download/create');
+  check('create sends chosen resolution + preset', create && create.data.resolution === 480 && create.data.preset === 'best' && create.data.fieldId === 7);
+  check('progress panel shows the video title', $m.find('.vd-panel .vd-vtitle').text() === 'Portrait clip');
+  t.close();
+
+  // Editing the URL drops the stale options.
+  const t2 = boot({ mode: 'all', handles: [], videoFieldsOnly: false, craft: '4.18.1' }, [
+    { key: 'plain', name: 'fields[videos]', fieldId: 7, kind: ['video'] },
+  ]);
+  t2.fireReady();
+  t2.win.Craft.sendActionRequest = () => t2.win.Promise.resolve({ data: { success: true, url: 'u', options: [{ resolution: 720, label: '720p', allowed: true }] } });
+  t2.$(t2.win.document.querySelector('.vd-scrape-btn')).trigger('click');
+  const $m2 = t2.modals[0].$el;
+  $m2.find('.vd-url').val('https://a.test/1');
+  $m2.trigger('submit');
+  await new Promise((r) => setTimeout(r, 10));
+  $m2.find('.vd-url').val('https://a.test/2').trigger('input');
+  check('editing URL hides options', $m2.find('.vd-options').attr('hidden') !== undefined);
+  check('editing URL resets button', $m2.find('.vd-submit').text() === 'Show options');
+  t2.close();
+
+  console.log(`\n${pass} passed, ${fail} failed`);
+  if (fail > 0) {
+    failures.forEach((f) => console.log(`FAIL: ${f}`));
+    process.exit(1);
+  }
+})();

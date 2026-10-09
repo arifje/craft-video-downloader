@@ -22,6 +22,7 @@ use yii\web\Response;
  * control-panel access and the standard CSRF token (Craft's JS sends it
  * automatically).
  *
+ *   POST video-downloader/download/inspect  list a URL's resolutions (options step)
  *   POST video-downloader/download/create   enqueue a download → { jobId }
  *   POST video-downloader/download/status    poll an owned job  → { status, … }
  *
@@ -41,6 +42,9 @@ use yii\web\Response;
  */
 class DownloadController extends Controller
 {
+    /** Format presets an Assets field download may request (no audio-only). */
+    public const FIELD_PRESETS = [Downloader::PRESET_COMPATIBLE, Downloader::PRESET_BEST];
+
     public function beforeAction($action): bool
     {
         if (!parent::beforeAction($action)) {
@@ -111,6 +115,23 @@ class DownloadController extends Controller
             throw new BadRequestHttpException($e->getMessage());
         }
 
+        // --- optional choice from the options step -------------------------
+        // Without a preset the job uses the default (capped) format selector,
+        // which is what older clients and a direct "Download" get.
+        $preset = $request->getBodyParam('preset');
+        $preset = ($preset === null || $preset === '') ? null : (string) $preset;
+        if ($preset !== null && !in_array($preset, self::FIELD_PRESETS, true)) {
+            throw new BadRequestHttpException('Unknown format preset.');
+        }
+        $requested = $request->getBodyParam('resolution', 0);
+        if (!is_numeric($requested) || (int) $requested < 0) {
+            throw new BadRequestHttpException('Invalid resolution.');
+        }
+        $resolution = Downloader::clampToCeiling(
+            (int) $requested,
+            Downloader::fromSettings($settings)->maxResolution(),
+        );
+
         // --- destination folder (resolved now, in web context) -------------
         // resolveDynamicPathToFolderId() honours the field's restrict/default
         // upload location settings and, for unsaved elements, may return the
@@ -153,12 +174,70 @@ class DownloadController extends Controller
         $job->folderId   = (int) $folder->id;
         $job->siteId     = $siteId;
         $job->uploaderId = (int) $user->id;
+        $job->preset     = $preset;
+        $job->resolution = $resolution;
         Craft::$app->getQueue()->push($job);
 
         Craft::$app->getResponse()->setStatusCode(202);
         return $this->asJson([
             'success' => true,
             'jobId'   => $record['id'],
+        ]);
+    }
+
+    /**
+     * Read a URL's metadata and available resolutions for the field modal's
+     * options step (no media is downloaded). Gated like create: CP access,
+     * plugin enabled, and the field must be an Assets field the settings allow.
+     *
+     * @throws BadRequestHttpException for an invalid field or URL
+     * @throws ForbiddenHttpException when the plugin or field is not enabled
+     */
+    public function actionInspect(): Response
+    {
+        $this->requirePostRequest();
+        $this->requireAcceptsJson();
+
+        $request  = Craft::$app->getRequest();
+        $settings = Plugin::getInstance()->getSettings();
+        if (!$settings->enabled) {
+            throw new ForbiddenHttpException('Video Downloader is disabled.');
+        }
+
+        $fieldId = (int) $request->getRequiredBodyParam('fieldId');
+        $field   = $fieldId > 0 ? Craft::$app->getFields()->getFieldById($fieldId) : null;
+        if (!$field instanceof AssetsField) {
+            throw new BadRequestHttpException('Unknown or non-Assets field.');
+        }
+        if (!$settings->allowsField($field)) {
+            throw new ForbiddenHttpException('Video Downloader is not enabled for this field.');
+        }
+
+        try {
+            $url = Downloader::normalizeUrl((string) $request->getRequiredBodyParam('url'), $settings->getAllowedHostsList());
+        } catch (\InvalidArgumentException $e) {
+            throw new BadRequestHttpException($e->getMessage());
+        }
+
+        @set_time_limit(120);
+        $downloader = Downloader::fromSettings($settings);
+        try {
+            $info = $downloader->inspect($url);
+        } catch (\Throwable $e) {
+            Craft::warning('Video Downloader: inspect failed: ' . $e->getMessage(), __METHOD__);
+            Craft::$app->getResponse()->setStatusCode(422);
+            return $this->asJson(['success' => false, 'error' => $e->getMessage()]);
+        }
+
+        $summary = Downloader::summarizeFormats($info, $downloader->maxResolution(), $downloader->maxFilesizeBytes());
+
+        return $this->asJson([
+            'success'       => true,
+            'url'           => $url,
+            'meta'          => Downloader::metaFromInfo($info),
+            'options'       => $summary['options'],
+            'maxResolution' => $downloader->maxResolution(),
+            'maxFilesizeMb' => (int) $settings->maxFilesizeMb,
         ]);
     }
 

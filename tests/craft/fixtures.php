@@ -66,12 +66,50 @@ switch ($action) {
         echo 'edition=' . Craft::$app->getEditionName() . " setup ok\n";
         break;
 
+    case 'field':
+        // Disposable Assets field `vdVideos` uploading to the first volume.
+        $fields = Craft::$app->getFields();
+        $field = $fields->getFieldByHandle('vdVideos');
+        if (!$field) {
+            $volume = Craft::$app->getVolumes()->getAllVolumes()[0] ?? null;
+            if ($volume === null) {
+                fwrite(STDERR, "no volume\n");
+                exit(1);
+            }
+            $field = new \craft\fields\Assets([
+                'name' => 'VD Videos',
+                'handle' => 'vdVideos',
+                'sources' => '*',
+                'defaultUploadLocationSource' => 'volume:' . $volume->uid,
+            ]);
+            if (method_exists($fields, 'getAllGroups') && property_exists($field, 'groupId')) {
+                $field->groupId = $fields->getAllGroups()[0]->id ?? null; // Craft 4
+            }
+            if (!$fields->saveField($field)) {
+                fwrite(STDERR, json_encode($field->getErrors()) . "\n");
+                exit(1);
+            }
+        }
+        echo $field->id . "\n";
+        break;
+
+    case 'delete-asset':
+        $asset = \craft\elements\Asset::find()->id((int) ($argv[2] ?? 0))->status(null)->one();
+        if ($asset) {
+            Craft::$app->getElements()->deleteElement($asset, true);
+        }
+        echo "deleted\n";
+        break;
+
     case 'tool':
         $save(['toolEnabled' => ($argv[2] ?? 'on') === 'on']);
         echo 'toolEnabled=' . var_export($plugin->getSettings()->toolEnabled, true) . "\n";
         break;
 
     case 'teardown':
+        if ($f = Craft::$app->getFields()->getFieldByHandle('vdVideos')) {
+            Craft::$app->getFields()->deleteField($f);
+        }
         foreach (['vd-editor', 'vd-noaccess'] as $name) {
             $u = User::find()->username($name)->status(null)->one();
             if ($u) {

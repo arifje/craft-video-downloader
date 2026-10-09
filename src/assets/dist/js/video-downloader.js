@@ -145,6 +145,7 @@
   /* ------------------------------------------------------------------ modal */
 
   function openModal($container, instance) {
+    var uid = Math.random().toString(36).slice(2, 8); // unique radio-group names
     var $modal = $(
       '<form class="modal vd-modal">' +
         '<div class="body">' +
@@ -155,7 +156,33 @@
           '<div class="field"><div class="input ltr">' +
             '<input type="url" class="text fullwidth vd-url" placeholder="https://…" autocomplete="off">' +
           '</div></div>' +
+          '<div class="vd-loading" role="status" aria-live="polite" hidden>' +
+            '<span class="vd-spinner" aria-hidden="true"></span>' +
+            '<span><span class="vd-loading-text">' + Craft.t('app', 'Reading video information…') + '</span>' +
+            '<span class="light vd-loading-time"></span></span>' +
+          '</div>' +
           '<div class="vd-feedback error" hidden></div>' +
+          '<div class="vd-options" hidden>' +
+            '<div class="vd-head">' +
+              '<div class="vd-thumb vd-othumb" hidden><img alt=""></div>' +
+              '<div class="vd-headtext">' +
+                '<div class="vd-vtitle vd-otitle"></div>' +
+                '<div class="vd-sub vd-osub light"></div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="vd-h">' + Craft.t('app', 'Format') + '</div>' +
+            '<div class="vd-choices vd-presets">' +
+              '<label class="vd-choice"><input type="radio" name="vd-preset-' + uid + '" value="compatible" checked>' +
+                '<span class="vd-ctitle">' + Craft.t('app', 'MP4') + '</span>' +
+                '<span class="vd-cdetail light">' + Craft.t('app', 'H.264 + AAC, plays everywhere.') + '</span></label>' +
+              '<label class="vd-choice"><input type="radio" name="vd-preset-' + uid + '" value="best">' +
+                '<span class="vd-ctitle">' + Craft.t('app', 'Best quality') + '</span>' +
+                '<span class="vd-cdetail light">' + Craft.t('app', 'Any codec (VP9, AV1).') + '</span></label>' +
+            '</div>' +
+            '<div class="vd-h">' + Craft.t('app', 'Resolution') + '</div>' +
+            '<div class="vd-choices vd-res"></div>' +
+            '<p class="light vd-limits"></p>' +
+          '</div>' +
           '<div class="vd-panel" hidden>' +
             '<div class="vd-head">' +
               '<div class="vd-thumb" hidden><img alt=""></div>' +
@@ -172,7 +199,7 @@
         '<div class="footer">' +
           '<div class="buttons right">' +
             '<button type="button" class="btn vd-cancel">' + Craft.t('app', 'Cancel') + '</button>' +
-            '<button type="submit" class="btn submit vd-submit">' + Craft.t('app', 'Download') + '</button>' +
+            '<button type="submit" class="btn submit vd-submit">' + Craft.t('app', 'Show options') + '</button>' +
           '</div>' +
         '</div>' +
       '</form>'
@@ -184,6 +211,10 @@
       resizable: false,
       onHide: function () {
         $container.data('vdModalOpen', false);
+        if (inspectTimer) {
+          clearInterval(inspectTimer);
+          inspectTimer = null;
+        }
         if (poll.timer) {
           clearTimeout(poll.timer);
           poll.timer = null;
@@ -203,8 +234,17 @@
     var $bar = $modal.find('.vd-bar');
     var $barFill = $modal.find('.vd-bar-fill');
     var $stats = $modal.find('.vd-stats');
+    var $loading = $modal.find('.vd-loading');
+    var $loadingTime = $modal.find('.vd-loading-time');
+    var $options = $modal.find('.vd-options');
+    var $res = $modal.find('.vd-res');
+    var $limits = $modal.find('.vd-limits');
     var metaShown = false;
     var submitting = false;
+    // 'url' = waiting for "Show options"; 'options' = choices shown, next is Download.
+    var step = 'url';
+    var inspected = null;
+    var inspectTimer = null;
 
     setTimeout(function () {
       $url.trigger('focus');
@@ -217,9 +257,104 @@
 
     function busy(isBusy, label) {
       submitting = isBusy;
-      $submit.toggleClass('loading', isBusy).prop('disabled', isBusy).text(label || Craft.t('app', 'Download'));
+      var idle = step === 'options' ? Craft.t('app', 'Download') : Craft.t('app', 'Show options');
+      $submit.toggleClass('loading', isBusy).prop('disabled', isBusy).text(label || idle);
       $url.prop('disabled', isBusy);
     }
+
+    function setInspecting(on) {
+      $loading.attr('hidden', !on);
+      if (inspectTimer) {
+        clearInterval(inspectTimer);
+        inspectTimer = null;
+      }
+      $loadingTime.text('');
+      if (on) {
+        var started = Date.now();
+        inspectTimer = setInterval(function () {
+          var sec = Math.round((Date.now() - started) / 1000);
+          $loadingTime.text(sec >= 3 ? ' ' + sec + ' s' + (sec >= 10 ? ', ' + Craft.t('app', 'some sites take up to a minute') : '') : '');
+        }, 1000);
+      }
+    }
+
+    function backToUrlStep() {
+      step = 'url';
+      inspected = null;
+      $options.attr('hidden', true);
+      if (!submitting) {
+        busy(false);
+      }
+    }
+
+    function renderOptions(data) {
+      $modal.find('.vd-otitle').text((data.meta && data.meta.title) || data.url);
+      var sub = [];
+      var meta = data.meta || {};
+      if (meta.uploader) sub.push(meta.uploader);
+      if (meta.duration) sub.push(formatDuration(meta.duration));
+      if (meta.extractor) sub.push(meta.extractor);
+      $modal.find('.vd-osub').text(sub.join('  ·  '));
+      var $othumb = $modal.find('.vd-othumb');
+      $othumb.attr('hidden', true);
+      if (meta.thumbnail) {
+        var oimg = $othumb.find('img')[0];
+        oimg.onload = function () { $othumb.attr('hidden', false); };
+        oimg.onerror = function () { $othumb.attr('hidden', true); };
+        oimg.src = meta.thumbnail;
+      }
+
+      var options = data.options || [];
+      if (!options.length) {
+        options = [{ resolution: 0, label: Craft.t('app', 'Best available'), allowed: true }];
+      }
+      $res.empty();
+      var picked = false;
+      options.forEach(function (o) {
+        var bits = [];
+        if (o.width && o.height) bits.push(o.width + '×' + o.height);
+        if (o.fps) bits.push(o.fps + ' fps');
+        if (o.estimatedBytes) bits.push('~' + formatBytes(o.estimatedBytes));
+        if (!o.allowed) {
+          bits.push(o.reason === 'ceiling'
+            ? Craft.t('app', 'Above the {res} limit', { res: data.maxResolution + 'p' })
+            : Craft.t('app', 'Over the size limit'));
+        }
+        var $input = $('<input type="radio">')
+          .attr('name', 'vd-res-' + uid)
+          .val(String(o.resolution || 0))
+          .prop('disabled', !o.allowed);
+        if (o.allowed && !picked) {
+          $input.prop('checked', true);
+          picked = true;
+        }
+        $('<label class="vd-choice"/>')
+          .toggleClass('vd-choice--disabled', !o.allowed)
+          .append($input)
+          .append($('<span class="vd-ctitle"/>').text(o.label))
+          .append($('<span class="vd-cdetail light"/>').text(bits.join('  ·  ')))
+          .appendTo($res);
+      });
+
+      var limits = [];
+      if (data.maxResolution) limits.push(Craft.t('app', 'Limit: {res}.', { res: data.maxResolution + 'p' }));
+      limits.push(Craft.t('app', 'Sizes are estimates.'));
+      $limits.text(limits.join(' '));
+
+      $options.attr('hidden', false);
+      if (!picked) {
+        error(Craft.t('app', 'No resolution of this video fits within the server limits.'));
+        $submit.prop('disabled', true);
+      }
+    }
+
+    // Changing the URL invalidates the options shown for the previous one.
+    $url.on('input', function () {
+      if (step === 'options') {
+        backToUrlStep();
+        $feedback.attr('hidden', true);
+      }
+    });
 
     function applyStatus(data) {
       $feedback.attr('hidden', true);
@@ -273,9 +408,41 @@
         return;
       }
       if (typeof instance.canAddMoreElements === 'function' && !instance.canAddMoreElements()) {
-        error(Craft.t('app', 'This field is full — remove an asset before downloading another.'));
+        error(Craft.t('app', 'This field is full. Remove an asset before downloading another.'));
         return;
       }
+
+      if (step === 'url') {
+        // Step 1: read the URL's formats and show the choices.
+        $feedback.attr('hidden', true);
+        $panel.attr('hidden', true);
+        busy(true, Craft.t('app', 'Loading…'));
+        setInspecting(true);
+        Craft.sendActionRequest('POST', 'video-downloader/download/inspect', {
+          data: { url: url, fieldId: fieldIdFor(instance) },
+        })
+          .then(function (resp) {
+            inspected = resp.data;
+            step = 'options';
+            renderOptions(resp.data);
+          })
+          .catch(function (err) {
+            error(errorMessage(err));
+          })
+          .then(function () {
+            setInspecting(false);
+            busy(false);
+            if (step === 'options' && !$res.find('input:checked').length) {
+              $submit.prop('disabled', true);
+            }
+          });
+        return;
+      }
+
+      // Step 2: download the chosen version.
+      var preset = $modal.find('input[name="vd-preset-' + uid + '"]:checked').val() || 'compatible';
+      var resolution = parseInt($res.find('input:checked').val(), 10) || 0;
+      $options.attr('hidden', true);
 
       busy(true, Craft.t('app', 'Starting…'));
       metaShown = false;
@@ -286,11 +453,18 @@
       $sub.text('');
       $stats.text('');
       $thumb.attr('hidden', true);
-      applyStatus({ stage: 'queued' });
+      applyStatus({ stage: 'queued', meta: inspected && inspected.meta });
 
       var ctx = editContext($container);
       Craft.sendActionRequest('POST', 'video-downloader/download/create', {
-        data: { url: url, fieldId: fieldIdFor(instance), elementId: ctx.elementId, siteId: ctx.siteId },
+        data: {
+          url: (inspected && inspected.url) || url,
+          fieldId: fieldIdFor(instance),
+          elementId: ctx.elementId,
+          siteId: ctx.siteId,
+          preset: preset,
+          resolution: resolution,
+        },
       })
         .then(function (resp) {
           var jobId = resp.data && resp.data.jobId;
@@ -321,6 +495,9 @@
             } else if (data.status === 'failed') {
               busy(false);
               error(data.error || Craft.t('app', 'The download failed.'));
+              if (inspected) {
+                $options.attr('hidden', false);
+              }
             } else {
               applyStatus(data);
               startPolling(jobId, startedAt);

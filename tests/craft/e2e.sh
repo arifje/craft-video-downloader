@@ -84,6 +84,24 @@ post "$E" video-downloader/download/status --data-urlencode "jobId=$JOB" >/dev/n
 argv=$(cd "$H" && docker compose exec -T php sh -c 'ls /var/www/html/storage/video-downloader/files/'"$JOB"'/ 2>/dev/null')
 check "file stored under storage/video-downloader/files" "$([ -n "$argv" ] && echo 1)"
 
+echo "== field modal: options step + chosen version"
+FIELD=$(fx field | tail -1)
+post "$A" video-downloader/download/inspect --data-urlencode "url=https://videos.example-cdn.test/v/1" --data-urlencode "fieldId=$FIELD" > "$TMP/finspect.json"
+flabels=$(php -r '$d=json_decode(file_get_contents($argv[1]),true); echo implode(",", array_column($d["options"]??[],"label"));' "$TMP/finspect.json")
+check "field inspect lists resolutions" "$([ "$flabels" = '4K,1080p,360p' ] && echo 1)" "($flabels / $(code))"
+post "$A" video-downloader/download/create --data-urlencode "url=https://videos.example-cdn.test/v/1" --data-urlencode "fieldId=$FIELD" --data-urlencode "preset=audio" >/dev/null
+check "field create rejects audio-only preset (400)" "$([ "$(code)" = 400 ] && echo 1)" "($(code))"
+FJOB=$(post "$A" video-downloader/download/create --data-urlencode "url=https://videos.example-cdn.test/v/1" --data-urlencode "fieldId=$FIELD" \
+  --data-urlencode "preset=best" --data-urlencode "resolution=480" | php -r '$d=json_decode(stream_get_contents(STDIN),true); echo $d["jobId"]??"";')
+check "field create with chosen version queued (202)" "$([ -n "$FJOB" ] && [ "$(code)" = 202 ] && echo 1)" "($(code))"
+(cd "$H" && docker compose exec -T -e VD_FAKE_DUMP_ARGS=/tmp/vd-args.json php php craft queue/run >/dev/null 2>&1)
+fres=$(post "$A" video-downloader/download/status --data-urlencode "jobId=$FJOB" | php -r '$d=json_decode(stream_get_contents(STDIN),true); echo ($d["status"]??"")."|".($d["result"]["assetId"]??"")."|".($d["error"]??"");')
+check "field job done with an asset" "$([[ "$fres" =~ ^done\|[0-9]+ ]] && echo 1)" "($fres)"
+EXPECT=$(php -r 'require $argv[1]; echo arifje\craftvideodownloader\services\Downloader::buildToolSelector(480, "best");' "$(dirname "$0")/../../src/services/Downloader.php")
+GOT=$(cd "$H" && docker compose exec -T php php -r '$a=json_decode(file_get_contents("/tmp/vd-args.json"),true); $i=array_search("-f",$a,true); echo $a[$i+1]??"";')
+check "yt-dlp got the chosen 480p/best selector" "$([ -n "$GOT" ] && [ "$GOT" = "$EXPECT" ] && echo 1)" "(got: ${GOT:0:60})"
+fx delete-asset "$(echo "$fres" | cut -d'|' -f2)" >/dev/null
+
 echo "== tool disabled"
 fx tool off >/dev/null
 c=$(get "$A" "admin/video-downloader"); check "disabled: page 404" "$([ "$c" = 404 ] && echo 1)" "($c)"
