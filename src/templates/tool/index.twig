@@ -9,7 +9,7 @@
      data-max-filesize-mb="{{ maxFilesizeMb }}">
 
     <p class="light vdt-intro">
-        {{ 'Paste a link to a social-media video, pick a resolution and format, and download it to this device. On a phone, use “Save to Photos” to put it straight into your photo library.'|t('app') }}
+        {{ 'Paste a link to a social-media video, pick a resolution and format, and download it to this device. On a phone, use “Save Video” to put it straight into your photo library.'|t('app') }}
     </p>
 
     <form class="vdt-inspect" id="vdt-inspect" novalidate>
@@ -21,6 +21,14 @@
             <button type="submit" class="btn submit" id="vdt-inspect-btn">{{ 'Show options'|t('app') }}</button>
         </div>
     </form>
+
+    <div class="vdt-loading" id="vdt-loading" role="status" aria-live="polite" hidden>
+        <span class="vdt-spinner" aria-hidden="true"></span>
+        <span>
+            <span class="vdt-loading-text">{{ 'Reading video information…'|t('app') }}</span>
+            <span class="light vdt-loading-time" id="vdt-loading-time"></span>
+        </span>
+    </div>
 
     <div class="vdt-error" id="vdt-error" role="alert" hidden></div>
 
@@ -37,7 +45,7 @@
         <div class="vdt-presets" id="vdt-presets" role="radiogroup">
             <label class="vdt-card">
                 <input type="radio" name="vdt-preset" value="compatible" checked>
-                <span class="vdt-cardtitle">{{ 'MP4 for Photos'|t('app') }}</span>
+                <span class="vdt-cardtitle">{{ 'MP4'|t('app') }}</span>
                 <span class="vdt-carddetail light">{{ 'H.264 + AAC. Plays everywhere and imports into iPhone and Android photo apps.'|t('app') }}</span>
             </label>
             <label class="vdt-card">
@@ -73,11 +81,11 @@
         <div class="vdt-donetitle">{{ 'Ready'|t('app') }}</div>
         <div class="vdt-file light" id="vdt-file"></div>
         <div class="vdt-actions">
-            <button type="button" class="btn submit" id="vdt-share" hidden>{{ 'Save to Photos'|t('app') }}</button>
+            <button type="button" class="btn submit" id="vdt-share" hidden>{{ 'Save Video'|t('app') }}</button>
             <a class="btn" id="vdt-save" href="#" download>{{ 'Download file'|t('app') }}</a>
             <button type="button" class="btn" id="vdt-again">{{ 'Download another'|t('app') }}</button>
         </div>
-        <p class="light vdt-note" id="vdt-share-note" hidden>{{ 'Tap “Save to Photos”, then choose “Save Video” in the share sheet.'|t('app') }}</p>
+        <p class="light vdt-note" id="vdt-share-note" hidden>{{ 'In the share sheet, choose “Save Video” to add it to your photo library.'|t('app') }}</p>
         <p class="light vdt-note">{{ 'The file stays available for 24 hours.'|t('app') }}</p>
     </div>
 </div>

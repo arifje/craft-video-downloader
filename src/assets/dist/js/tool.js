@@ -4,7 +4,7 @@
  * Flow: paste a URL → "Show options" asks the server (yt-dlp) which
  * resolutions exist → pick a format preset + resolution → the download is
  * queued and polled → the finished file is delivered to this device:
- *  - phones/tablets with Web Share Level 2 get a "Save to Photos" button that
+ *  - phones/tablets with Web Share Level 2 get a "Save Video" button that
  *    opens the native share sheet with the file (the only way a web page can
  *    reach the photo library); the file is prefetched first so the share
  *    call stays inside the tap's user activation;
@@ -35,6 +35,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var el = {
     form: $('vdt-inspect'), url: $('vdt-url'), paste: $('vdt-paste'), inspectBtn: $('vdt-inspect-btn'),
+    loading: $('vdt-loading'), loadingTime: $('vdt-loading-time'),
     error: $('vdt-error'), video: $('vdt-video'), thumb: $('vdt-thumb'), title: $('vdt-title'), sub: $('vdt-sub'),
     choose: $('vdt-choose'), res: $('vdt-res'), resWrap: $('vdt-res-wrap'), limits: $('vdt-limits'),
     audioCard: $('vdt-audio-card'), audioDetail: $('vdt-audio-detail'), download: $('vdt-download'),
@@ -127,8 +128,7 @@
 
     resetBelowUrl();
     state.busy = true;
-    el.inspectBtn.classList.add('loading');
-    el.inspectBtn.disabled = true;
+    setInspecting(true);
 
     Craft.sendActionRequest('POST', 'video-downloader/tool/inspect', { data: { url: url } })
       .then(function (resp) {
@@ -140,10 +140,29 @@
       .catch(function (err) { error(errorMessage(err)); })
       .then(function () {
         state.busy = false;
-        el.inspectBtn.classList.remove('loading');
-        el.inspectBtn.disabled = false;
+        setInspecting(false);
       });
   });
+
+  /** Visible "working" state while yt-dlp reads the URL (can take a while). */
+  var inspectTimer = null;
+  var inspectLabel = el.inspectBtn.textContent;
+  function setInspecting(on) {
+    show(el.loading, on);
+    el.inspectBtn.disabled = on;
+    el.url.disabled = on;
+    el.paste.disabled = on;
+    el.inspectBtn.textContent = on ? t('Loading…') : inspectLabel;
+    if (inspectTimer) { clearInterval(inspectTimer); inspectTimer = null; }
+    el.loadingTime.textContent = '';
+    if (on) {
+      var started = Date.now();
+      inspectTimer = setInterval(function () {
+        var s = Math.round((Date.now() - started) / 1000);
+        el.loadingTime.textContent = s >= 3 ? ' ' + s + ' s' + (s >= 10 ? ', ' + t('some sites take up to a minute') : '') : '';
+      }, 1000);
+    }
+  }
 
   function renderVideo(meta) {
     el.title.textContent = meta.title || state.url;

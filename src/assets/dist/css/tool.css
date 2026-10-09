@@ -27,6 +27,34 @@
   direction: ltr;
 }
 
+.vdt-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: var(--gray-050, #f3f7fc);
+}
+
+.vdt-loading-text {
+  font-weight: 600;
+}
+
+.vdt-spinner {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--gray-200, #cdd8e4);
+  border-top-color: var(--link-color, #0b69a3);
+  border-radius: 50%;
+  animation: vdt-spin 0.8s linear infinite;
+}
+
+@keyframes vdt-spin {
+  to { transform: rotate(360deg); }
+}
+
 .vdt-error {
   margin-top: 14px;
   padding: 10px 12px;

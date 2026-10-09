@@ -25,15 +25,15 @@ The asset is created in exactly the folder/volume the field's **Upload files** b
 
 Besides the button on Assets fields, the plugin adds a **Video Downloader** page to the control-panel navigation for downloading a video straight to your own device (nothing is added to your Assets).
 
-1. Paste a URL (on a phone, the **Paste** button reads your clipboard) and tap **Show options**.
+1. Paste a URL (on a phone, the **Paste** button reads your clipboard) and tap **Show options**. While yt-dlp reads the post (a few seconds, up to a minute on slow sites) a status row with a spinner and elapsed time is shown.
 2. The plugin asks yt-dlp what the post offers and lists **every available resolution**, with dimensions, frame rate, an estimated file size and whether an H.264 stream exists. Resolutions above your **Max resolution** ceiling or over the **Max file size** are listed but disabled, with the reason.
 3. Pick a format:
-   - **MP4 for Photos** (default): H.264 video + AAC audio, the combination iPhone and Android photo libraries import.
+   - **MP4** (default): H.264 video + AAC audio, the combination iPhone and Android photo libraries import.
    - **Best quality**: highest quality in any codec (VP9, AV1), merged to MP4 (or MKV). May not import into Photos.
    - **Audio only**: the soundtrack, M4A when available.
 4. Tap **Download**. The download runs on the queue with the same live progress bar as the field button.
 5. When it's ready:
-   - **On a phone**: tap **Save to Photos**. This opens the native share sheet with the video; choose **Save Video** to put it in your photo library. (Browsers can't write to the photo library directly; the share sheet is the supported route. It needs iOS 15+ Safari or a current Android Chrome.)
+   - **On a phone**: tap **Save Video**. This opens the native share sheet with the video; choose **Save Video** there to put it in your photo library. (Browsers can't write to the photo library directly; the share sheet is the supported route. It needs iOS 15+ Safari or a current Android Chrome.)
    - **On a desktop**: the file downloads automatically, and **Download file** is there as a fallback.
 
 Finished files are kept under `storage/video-downloader/files/` (never web-accessible), can only be fetched by the user who started the download, and are deleted after 24 hours.

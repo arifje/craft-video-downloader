@@ -53,12 +53,15 @@ function boot({ share = false } = {}) {
   const win = dom.window;
   const calls = [];
   const statusQueue = [];
+  const hold = { inspect: null };
   win.Craft = {
     t: (cat, str, params) => (params ? str.replace(/\{(\w+)\}/g, (m, k) => params[k]) : str),
     getActionUrl: (action, params) => `/actions/${action}?jobId=${params.jobId}`,
     sendActionRequest: (method, action, opts) => {
       calls.push({ action, data: opts && opts.data });
-      if (action === 'video-downloader/tool/inspect') return Promise.resolve({ data: INSPECT });
+      if (action === 'video-downloader/tool/inspect') {
+        return hold.inspect ? new win.Promise((res) => { hold.release = () => res({ data: INSPECT }); }) : Promise.resolve({ data: INSPECT });
+      }
       if (action === 'video-downloader/tool/create') return Promise.resolve({ data: { success: true, jobId: 'a'.repeat(32) } });
       if (action === 'video-downloader/download/status') return Promise.resolve({ data: statusQueue.shift() || { status: 'running', stage: 'downloading' } });
       return Promise.reject(new Error('unexpected ' + action));
@@ -74,7 +77,7 @@ function boot({ share = false } = {}) {
   }
   win.eval(SRC);
   const q = (sel) => win.document.querySelector(sel);
-  return { win, q, calls, statusQueue, clicked, shared };
+  return { win, q, calls, statusQueue, clicked, shared, hold };
 }
 
 async function inspect(t) {
@@ -84,6 +87,25 @@ async function inspect(t) {
 }
 
 (async () => {
+  console.log('Loading state while inspecting');
+  {
+    const t = boot();
+    t.hold.inspect = true;
+    t.q('#vdt-url').value = 'https://videos.example.test/v/1';
+    t.q('#vdt-inspect').dispatchEvent(new t.win.Event('submit', { cancelable: true }));
+    await tick(t.win, 5);
+    check('loading row visible', t.q('#vdt-loading').hidden === false && /Reading video information/.test(t.q('#vdt-loading').textContent));
+    check('button disabled + relabelled', t.q('#vdt-inspect-btn').disabled === true && t.q('#vdt-inspect-btn').textContent === 'Loading…');
+    check('url input locked', t.q('#vdt-url').disabled === true);
+    await tick(t.win, 3200);
+    check('elapsed time shown on slow sites', /3 s/.test(t.q('#vdt-loading-time').textContent));
+    t.hold.release();
+    await tick(t.win, 10);
+    check('loading row hidden when done', t.q('#vdt-loading').hidden === true);
+    check('button restored', t.q('#vdt-inspect-btn').disabled === false && t.q('#vdt-inspect-btn').textContent === 'Show options');
+    check('labels renamed (MP4 / Save Video)', /\bMP4\b/.test(t.q('#vdt-presets').textContent) && !/for Photos/.test(t.q('#vdt-presets').textContent) && t.q('#vdt-share').textContent.trim() === 'Save Video');
+  }
+
   console.log('Inspect + options');
   {
     const t = boot();
@@ -126,7 +148,7 @@ async function inspect(t) {
     check('no share button on desktop', t.q('#vdt-share').hidden === true);
   }
 
-  console.log('Download (phone): Save to Photos via share sheet');
+  console.log('Download (phone): Save Video via share sheet');
   {
     const t = boot({ share: true });
     await inspect(t);
@@ -144,7 +166,7 @@ async function inspect(t) {
   console.log('CSS guard');
   {
     // Craft's .btn { display: inline-flex } beats the UA [hidden] rule, which
-    // once left "Save to Photos" visible on desktops that can't share files.
+    // once left "Save Video" visible on desktops that can't share files.
     const css = fs.readFileSync(path.join(__dirname, '../../src/assets/dist/css/tool.css'), 'utf8');
     check('tool.css forces [hidden] inside the tool', /\.vdt \[hidden\]\s*\{\s*display:\s*none\s*!important/.test(css));
   }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.1 - 2026-10-09
+
+### Changed
+- Download tool: "Show options" now shows a visible working state (spinner,
+  "Reading video information…", elapsed seconds, and a note when a site is
+  slow) and locks the URL field until the options load.
+- Download tool labels: "MP4 for Photos" is now "MP4" and the phone button
+  "Save to Photos" is now "Save Video".
+
 ## 2.2.0 - 2026-10-09
 
 ### Added

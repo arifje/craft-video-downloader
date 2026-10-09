@@ -82,7 +82,7 @@ a disposable install: nav item + page for admin and for a user with the
 queued download, owner-only file delivery as an attachment, other users
 getting 404 for file and status, and the "Download tool" switch. It creates
 and removes its own test users. Still manual: the share sheet on a real
-iPhone/Android ("Save to Photos" → "Save Video").
+iPhone/Android ("Save Video" button → "Save Video" in the share sheet).
 
 ## Version/API smoke (per install)
 

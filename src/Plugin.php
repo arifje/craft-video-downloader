@@ -25,7 +25,7 @@ use yii\base\Event;
  * It also provides a standalone download tool (CP nav item "Video
  * Downloader", {@see controllers\ToolController}) that inspects a URL, offers
  * the available resolutions and formats, and downloads the result to the
- * user's device (with a share-sheet "Save to Photos" path on mobile).
+ * user's device (with a share-sheet "Save Video" path on mobile).
  *
  * Default action endpoints (Craft's standard plugin routing):
  *   POST /actions/video-downloader/download/create   enqueue a field download
