@@ -59,6 +59,23 @@
 }) }}
 
 {{ forms.autosuggestField({
+    label: 'JS runtime (YouTube)'|t('app'),
+    instructions: 'YouTube only serves video to yt-dlp after a JavaScript challenge is solved, which needs a runtime such as Deno. Without one, YouTube downloads fail with “403 Forbidden”. Leave empty to auto-detect Deno, or enter the full path (for example `/home/deploy/.deno/bin/deno`) or an environment variable such as `$VIDEO_DOWNLOADER_JS_RUNTIME`.'|t('app'),
+    name: 'jsRuntime',
+    value: settings.jsRuntime,
+    suggestEnvVars: true,
+    tip: jsRuntimeStatus,
+}) }}
+
+{{ forms.autosuggestField({
+    label: 'Cookies file'|t('app'),
+    instructions: 'Optional. Path to a cookies.txt (Netscape format) exported from a logged-in browser, for videos behind sign-in or bot checks. Keep it outside the web root. Supports an environment variable such as `$VIDEO_DOWNLOADER_COOKIE_FILE`.'|t('app'),
+    name: 'cookieFile',
+    value: settings.cookieFile,
+    suggestEnvVars: true,
+}) }}
+
+{{ forms.autosuggestField({
     label: 'Max resolution'|t('app'),
     instructions: 'Resolution ceiling as a profile: 1080 allows up to 1920x1080 landscape and 1080x1920 portrait (Reels, TikTok, Shorts) while blocking 4K. Supports an environment variable such as `$VIDEO_DOWNLOADER_MAX_RESOLUTION`. Leave empty or set 0 for no limit. Sensible values: 720, 1080, 1440.'|t('app'),
     name: 'maxResolution',

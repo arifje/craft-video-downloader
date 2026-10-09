@@ -49,6 +49,11 @@ c=$(get "$E" "admin/video-downloader"); check "editor (with permission): page 20
 c=$(get "$N" "admin/video-downloader"); check "no-permission user: page 403" "$([ "$c" = 403 ] && echo 1)" "($c)"
 get "$N" "admin/dashboard" >/dev/null; check "no-permission user: nav item hidden" "$(grep -q 'admin/video-downloader"' "$TMP/body" || echo 1)"
 
+echo "== settings page"
+c=$(get "$A" "admin/settings/plugins/video-downloader"); check "settings page 200" "$([ "$c" = 200 ] && echo 1)" "($c)"
+check "settings: JS runtime field + status" "$(grep -q 'JS runtime (YouTube)' "$TMP/body" && grep -qE 'Using: |No JS runtime found' "$TMP/body" && echo 1)"
+check "settings: cookies file field" "$(grep -q 'Cookies file' "$TMP/body" && echo 1)"
+
 echo "== inspect"
 post "$A" video-downloader/tool/inspect --data-urlencode "url=https://videos.example-cdn.test/v/1" > "$TMP/inspect.json"
 labels=$(php -r '$d=json_decode(file_get_contents($argv[1]),true); echo implode(",", array_column($d["options"]??[],"label"));' "$TMP/inspect.json")

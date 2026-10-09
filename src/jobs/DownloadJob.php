@@ -51,7 +51,10 @@ class DownloadJob extends BaseJob implements RetryableJobInterface
 
     public function canRetry($attempt, $error): bool
     {
-        return $attempt < 2;
+        // Single attempt: the editor already sees the failure (and can just
+        // try again), and a silent retry would report "failed" while still
+        // running — or, for field downloads, create an asset nobody attaches.
+        return false;
     }
 
     public function execute($queue): void

@@ -91,11 +91,34 @@ Settings live at **Settings → Plugins → Video Downloader**:
 | **Fields** | – | The Assets fields that get the button when “Apply to” is set to a list. |
 | **Video-capable fields only** | on | Only show the button on fields that accept video (no file-type restriction, or *Video* among the allowed types). Leave on to skip image-only fields. |
 | **yt-dlp path** | `yt-dlp` | Absolute path, or an env var like `$VIDEO_DOWNLOADER_YTDLP`. |
+| **JS runtime (YouTube)** | *(auto-detect Deno)* | Runtime yt-dlp uses to solve YouTube's challenge. Full path (e.g. `/home/deploy/.deno/bin/deno`), a bare name, or an env var like `$VIDEO_DOWNLOADER_JS_RUNTIME`. The settings page shows which runtime is in use. |
+| **Cookies file** | *(none)* | Optional cookies.txt from a logged-in browser, for sign-in or bot-check gated videos. Env var like `$VIDEO_DOWNLOADER_COOKIE_FILE`. |
 | **Max resolution** | `1080` | Resolution ceiling as a profile (short side): 1080 allows up to 1920x1080 landscape and 1080x1920 portrait while blocking 4K. Accepts an env var like `$VIDEO_DOWNLOADER_MAX_RESOLUTION`. Empty or `0` = no limit. |
 | **Format** | `mp4/bestvideo*+bestaudio/best` | yt-dlp `-f` selector, only used when **Max resolution** is empty/0 (a ceiling builds its own capped selector). The default avoids needing ffmpeg unless a merge is unavoidable. |
 | **Max file size** | 500 MB | Hard cap (`--max-filesize`). |
 | **Timeout** | 300 s | Wall-clock limit for the yt-dlp process. |
 | **Allowed hosts** | *(any)* | Optional allow-list, one hostname per line. Sub-domains match too. |
+
+### YouTube: install Deno
+
+YouTube only hands out video streams after a JavaScript challenge is solved, and yt-dlp needs a JS runtime for that. Without one, the options load fine but the download fails with **"HTTP Error 403: Forbidden"**. **Deno** is the runtime that works reliably.
+
+```bash
+# as the user php-fpm and the queue worker run as (or system-wide)
+curl -fsSL https://deno.land/install.sh | sh     # installs ~/.deno/bin/deno
+yt-dlp -U                                        # keep yt-dlp current; YouTube changes often
+```
+
+The plugin auto-detects Deno on PATH, in `~/.deno/bin`, `/home/*/.deno/bin`, `/usr/local/bin` and `/usr/bin`. php-fpm's PATH usually doesn't include `~/.deno/bin`, so it's best to set it explicitly:
+
+```bash
+# .env
+VIDEO_DOWNLOADER_JS_RUNTIME=/home/deploy/.deno/bin/deno
+```
+
+and set **JS runtime (YouTube)** to `$VIDEO_DOWNLOADER_JS_RUNTIME`. The settings page then shows "Using: deno:/home/deploy/.deno/bin/deno". For YouTube URLs the plugin passes `--js-runtimes deno:<path>` and `--remote-components ejs:github` (yt-dlp fetches its challenge solver from GitHub). If YouTube still refuses ("Sign in to confirm you're not a bot"), the server IP is being challenged: export a cookies.txt from a logged-in browser and set **Cookies file**.
+
+Failed downloads now explain the likely fix (install Deno, update yt-dlp, add cookies) next to the yt-dlp error.
 
 ### Capping resolution from `.env`
 

@@ -67,8 +67,10 @@ function makeDownloader(string $scratch, array $overrides = []): Downloader
         $overrides['timeout'] ?? 30,
         $overrides['maxResolution'] ?? 0,
         // Allow-listed so normalizeUrl never touches DNS — tests stay offline.
-        $overrides['allowedHosts'] ?? ['example-cdn.test'],
+        $overrides['allowedHosts'] ?? ['example-cdn.test', 'youtube.com'],
         $scratch,
+        $overrides['jsRuntime'] ?? '',
+        $overrides['cookieFile'] ?? '',
     );
 }
 
@@ -300,6 +302,60 @@ touch($scratch . '/files/' . $old, time() - 2 * 86400);
 check('cleanup purges expired downloads', $ts->cleanup() === 1 && $ts->find($old) === null);
 check('safeFilename strips unsafe chars', ToolStorage::safeFilename("a/b\"c\r\n.mp4") === 'a_b_c_.mp4');
 check('safeFilename never hidden/empty', ToolStorage::safeFilename('...') === 'video.mp4' && !str_starts_with(ToolStorage::safeFilename('.htaccess'), '.'));
+
+/* --------------------------------------------------- YouTube + cookies */
+echo "YouTube JS runtime + cookies\n";
+
+check('youtube hosts detected', Downloader::isYoutubeUrl('https://www.youtube.com/watch?v=x') && Downloader::isYoutubeUrl('https://youtu.be/x') && Downloader::isYoutubeUrl('https://m.youtube.com/x'));
+check('non-youtube not detected', !Downloader::isYoutubeUrl('https://x.com/a') && !Downloader::isYoutubeUrl('https://notyoutube.com/x'));
+
+$fakeDeno = $scratch . '/bin/deno';
+@mkdir(dirname($fakeDeno), 0777, true);
+file_put_contents($fakeDeno, "#!/bin/sh\nexit 0\n");
+chmod($fakeDeno, 0755);
+check('explicit path → deno:<path>', makeDownloader($scratch, ['jsRuntime' => $fakeDeno])->jsRuntimeArg() === 'deno:' . $fakeDeno);
+check('invalid explicit path → none', makeDownloader($scratch, ['jsRuntime' => $scratch . '/nope/deno'])->jsRuntimeArg() === null);
+check('bare name accepted', makeDownloader($scratch, ['jsRuntime' => 'node'])->jsRuntimeArg() === 'node');
+check('unknown bare name rejected', makeDownloader($scratch, ['jsRuntime' => 'rm -rf'])->jsRuntimeArg() === null);
+
+$d = makeDownloader($scratch, ['jsRuntime' => $fakeDeno]);
+$yt = $d->siteArgs('https://www.youtube.com/watch?v=KcCOEjn1t0A');
+check('youtube gets --js-runtimes deno:<path>', ($yt[array_search('--js-runtimes', $yt, true) + 1] ?? '') === 'deno:' . $fakeDeno);
+check('youtube gets the EJS solver', in_array('ejs:github', $yt, true));
+check('non-youtube gets neither', $d->siteArgs('https://videos.example-cdn.test/v') === []);
+
+$cookies = $scratch . '/cookies.txt';
+file_put_contents($cookies, "# Netscape HTTP Cookie File\n");
+check('readable cookies file passed', in_array($cookies, makeDownloader($scratch, ['cookieFile' => $cookies])->siteArgs('https://videos.example-cdn.test/v'), true));
+check('missing cookies file ignored', makeDownloader($scratch, ['cookieFile' => $scratch . '/none.txt'])->siteArgs('https://videos.example-cdn.test/v') === []);
+
+putenv('VD_FAKE_MODE=success');
+$dumpFile = $scratch . '/args3.json';
+putenv('VD_FAKE_DUMP_ARGS=' . $dumpFile);
+$res = $d->download('https://www.youtube.com/watch?v=KcCOEjn1t0A');
+$args = json_decode((string) file_get_contents($dumpFile), true);
+$sep = array_search('--', $args, true);
+$rt = array_search('--js-runtimes', $args, true);
+check('download argv carries the runtime before --', $rt !== false && $rt < $sep && $args[$rt + 1] === 'deno:' . $fakeDeno);
+check('URL still last after --', $args[$sep + 1] === 'https://www.youtube.com/watch?v=KcCOEjn1t0A');
+$d->removeDir($res['dir']);
+putenv('VD_FAKE_DUMP_ARGS');
+
+$noRt = makeDownloader($scratch, ['jsRuntime' => $scratch . '/nope/deno']);
+$h = $noRt->failureHint('ERROR: unable to download video data: HTTP Error 403: Forbidden', 'https://www.youtube.com/watch?v=x');
+check('youtube 403 without runtime → install Deno hint', $h !== null && str_contains($h, 'Deno'));
+$h = $d->failureHint('ERROR: unable to download video data: HTTP Error 403: Forbidden', 'https://www.youtube.com/watch?v=x');
+check('youtube 403 with runtime → update yt-dlp / cookies hint', $h !== null && str_contains($h, 'yt-dlp -U') && !str_contains($h, 'Install Deno'));
+check('sign-in check → cookies hint', str_contains((string) $d->failureHint('Sign in to confirm you’re not a bot', 'https://www.youtube.com/watch?v=x'), 'cookies'));
+check('unrelated error → no hint', $d->failureHint('ERROR: Unsupported URL', 'https://videos.example-cdn.test/x') === null);
+
+putenv('VD_FAKE_MODE=forbidden');
+$msg = '';
+try { $noRt->download('https://www.youtube.com/watch?v=x'); } catch (\RuntimeException $e) { $msg = $e->getMessage(); }
+check('403 failure message keeps the yt-dlp error', str_contains($msg, 'HTTP Error 403'));
+check('403 failure message appends the Deno hint', str_contains($msg, 'Install Deno'));
+check('403 failure leaves no temp dir', count(glob($scratch . '/video-downloader/*') ?: []) === 0);
+putenv('VD_FAKE_MODE=success');
 
 /* --------------------------------------------------- cleanup containment */
 echo "Cleanup containment\n";

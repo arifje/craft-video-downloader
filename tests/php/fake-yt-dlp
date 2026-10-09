@@ -6,6 +6,7 @@
  *
  *   success (default) — emit progress lines, write a small .mp4, exit 0
  *   fail              — write an ERROR to stderr, exit 1
+ *   forbidden         — YouTube-style 403 on the media download, exit 1
  *   nofile            — exit 0 without producing a file
  *   sleep             — sleep 10s (for timeout tests)
  *   big               — write a 2 MiB file (for size-cap tests)
@@ -75,6 +76,10 @@ switch ($mode) {
             ],
         ]) . "\n";
         exit(0);
+
+    case 'forbidden':
+        fwrite(STDERR, "ERROR: unable to download video data: HTTP Error 403: Forbidden\n");
+        exit(1);
 
     case 'fail':
         fwrite(STDERR, "WARNING: something benign\nERROR: [fake] This video is unavailable\n");

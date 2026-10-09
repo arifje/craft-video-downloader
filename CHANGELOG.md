@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.3.0 - 2026-10-09
+
+### Fixed
+- **YouTube downloads failing with "HTTP Error 403: Forbidden"** while the
+  options loaded fine. YouTube requires yt-dlp to solve a JavaScript
+  challenge; the plugin now passes a JS runtime (`--js-runtimes deno:<path>`)
+  and the EJS solver (`--remote-components ejs:github`) for YouTube URLs, the
+  same approach craft-website-scraper uses.
+- Failed jobs no longer retry silently. A retry kept the queue row "Reserved"
+  after the editor had already been told the download failed (and for field
+  downloads a successful retry created an asset nobody attached). Jobs are now
+  single-attempt; just click Download again.
+
+### Added
+- **JS runtime (YouTube)** setting: empty auto-detects Deno (PATH,
+  `~/.deno/bin`, `/home/*/.deno/bin`, `/usr/local/bin`, `/usr/bin`), or a full
+  path / bare name / env var such as `$VIDEO_DOWNLOADER_JS_RUNTIME`. The
+  settings page shows which runtime is in use, or warns when none is found.
+- **Cookies file** setting (env-aware) for sign-in or bot-check gated videos.
+- Failure hints: yt-dlp errors now come with the likely fix (install Deno,
+  update yt-dlp, add a cookies file, resolution limit).
+
+### Upgrade notes
+- For YouTube, install Deno on the server and set
+  `VIDEO_DOWNLOADER_JS_RUNTIME` to its full path (see README, "YouTube:
+  install Deno"). Keep yt-dlp current with `yt-dlp -U`.
+
 ## 2.2.1 - 2026-10-09
 
 ### Changed

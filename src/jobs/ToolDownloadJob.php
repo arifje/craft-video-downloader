@@ -53,7 +53,10 @@ class ToolDownloadJob extends BaseJob implements RetryableJobInterface
     /** @inheritdoc */
     public function canRetry($attempt, $error): bool
     {
-        return $attempt < 2;
+        // Single attempt: the editor already sees the failure (and can just
+        // try again), and a silent retry would report "failed" while still
+        // running — or, for field downloads, create an asset nobody attaches.
+        return false;
     }
 
     /**

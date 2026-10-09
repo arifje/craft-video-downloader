@@ -52,6 +52,22 @@ class Settings extends Model
     public string $ytDlpPath = 'yt-dlp';
 
     /**
+     * JavaScript runtime yt-dlp uses to solve YouTube's n-challenge (without
+     * one, YouTube downloads fail with 403). Empty = auto-detect Deno; or a
+     * bare name (deno, node, bun, quickjs); or a full path such as
+     * /home/deploy/.deno/bin/deno. Supports env syntax, e.g.
+     * `$VIDEO_DOWNLOADER_JS_RUNTIME`.
+     */
+    public string $jsRuntime = '';
+
+    /**
+     * Optional Netscape-format cookies.txt exported from a logged-in browser,
+     * for videos behind sign-in or bot checks. Supports env syntax, e.g.
+     * `$VIDEO_DOWNLOADER_COOKIE_FILE`. Keep it outside the web root.
+     */
+    public string $cookieFile = '';
+
+    /**
      * yt-dlp `-f` format selector. The default prefers a single progressive mp4
      * (no ffmpeg merge needed) and only falls back to a separate video+audio
      * merge — which requires ffmpeg — when that's all that's on offer.
@@ -91,7 +107,7 @@ class Settings extends Model
             [['enabled', 'toolEnabled', 'videoFieldsOnly'], 'boolean'],
             [['mode'], 'in', 'range' => [self::MODE_ALL, self::MODE_LIST]],
             [['fieldHandles'], 'each', 'rule' => ['string']],
-            [['ytDlpPath', 'format', 'maxResolution', 'allowedHosts'], 'string'],
+            [['ytDlpPath', 'format', 'maxResolution', 'allowedHosts', 'jsRuntime', 'cookieFile'], 'string'],
             [['ytDlpPath', 'format'], 'required'],
             [['maxFilesizeMb', 'timeout'], 'integer', 'min' => 1],
         ];
@@ -136,6 +152,18 @@ class Settings extends Model
     public function getResolvedYtDlpPath(): string
     {
         return App::parseEnv($this->ytDlpPath) ?: 'yt-dlp';
+    }
+
+    /** The JS runtime setting with `$ENV_VAR` / alias syntax expanded. */
+    public function getResolvedJsRuntime(): string
+    {
+        return trim((string) App::parseEnv($this->jsRuntime));
+    }
+
+    /** The cookies-file setting with `$ENV_VAR` / alias syntax expanded. */
+    public function getResolvedCookieFile(): string
+    {
+        return trim((string) App::parseEnv($this->cookieFile));
     }
 
     /**

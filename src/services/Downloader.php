@@ -77,6 +77,13 @@ final class Downloader
         private readonly array $allowedHosts = [],
         /** Overrides Craft's temp path; lets tests run without a Craft app. */
         private readonly ?string $tempBasePath = null,
+        /**
+         * JS runtime for YouTube's n-challenge: '' = auto-detect Deno, a bare
+         * name (deno, node, bun, quickjs) or a full path to the binary.
+         */
+        private readonly string $jsRuntime = '',
+        /** Optional Netscape cookies.txt for sign-in/bot-check gated videos. */
+        private readonly string $cookieFile = '',
     ) {
     }
 
@@ -89,7 +96,121 @@ final class Downloader
             (int) $settings->timeout,
             $settings->getResolvedMaxResolution(),
             $settings->getAllowedHostsList(),
+            jsRuntime: $settings->getResolvedJsRuntime(),
+            cookieFile: $settings->getResolvedCookieFile(),
         );
+    }
+
+    /* ------------------------------------------- YouTube / site extras */
+
+    /** JS runtimes yt-dlp's --js-runtimes accepts. */
+    private const JS_RUNTIMES = ['deno', 'node', 'bun', 'quickjs'];
+
+    public static function isYoutubeUrl(string $url): bool
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        return $host === 'youtu.be' || $host === 'youtube.com' || str_ends_with($host, '.youtube.com')
+            || $host === 'youtube-nocookie.com' || str_ends_with($host, '.youtube-nocookie.com');
+    }
+
+    /**
+     * The JS runtime to hand yt-dlp, as `--js-runtimes` value `name[:path]`,
+     * or null when none is configured/found. An explicit setting wins; with
+     * no setting, Deno is searched on PATH and in common install locations
+     * (php-fpm's PATH rarely includes ~/.deno/bin, hence the full path).
+     */
+    public function jsRuntimeArg(): ?string
+    {
+        $explicit = trim($this->jsRuntime);
+        if ($explicit !== '') {
+            if (str_contains($explicit, '/')) {
+                if (!is_file($explicit) || !is_executable($explicit)) {
+                    return null; // configured path is invalid
+                }
+                $name = strtolower(basename($explicit));
+                $name = in_array($name, self::JS_RUNTIMES, true) ? $name : 'deno';
+                return $name . ':' . $explicit;
+            }
+            $name = strtolower($explicit);
+            return in_array($name, self::JS_RUNTIMES, true) ? $name : null;
+        }
+
+        $deno = self::detectDeno();
+        return $deno !== null ? 'deno:' . $deno : null;
+    }
+
+    /** Find an executable Deno binary without using a shell. */
+    public static function detectDeno(): ?string
+    {
+        $candidates = [];
+        foreach (explode(PATH_SEPARATOR, (string) getenv('PATH')) as $dir) {
+            if ($dir !== '') {
+                $candidates[] = rtrim($dir, '/') . '/deno';
+            }
+        }
+        $home = (string) getenv('HOME');
+        if ($home !== '') {
+            $candidates[] = $home . '/.deno/bin/deno';
+        }
+        array_push($candidates, '/usr/local/bin/deno', '/usr/bin/deno', '/opt/deno/bin/deno', '/root/.deno/bin/deno');
+        foreach (glob('/home/*/.deno/bin/deno') ?: [] as $path) {
+            $candidates[] = $path;
+        }
+        foreach ($candidates as $path) {
+            if (@is_file($path) && @is_executable($path)) {
+                return $path;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Extra yt-dlp arguments for a URL: the EJS challenge solver + JS runtime
+     * for YouTube, and the cookies file when one is configured and readable.
+     *
+     * @return string[]
+     */
+    public function siteArgs(string $url): array
+    {
+        $args = [];
+        if (self::isYoutubeUrl($url)) {
+            $runtime = $this->jsRuntimeArg();
+            if ($runtime !== null) {
+                array_push($args, '--js-runtimes', $runtime);
+            }
+            array_push($args, '--remote-components', 'ejs:github');
+        }
+        $cookies = trim($this->cookieFile);
+        if ($cookies !== '' && is_file($cookies) && is_readable($cookies)) {
+            array_push($args, '--cookies', $cookies);
+        }
+        return $args;
+    }
+
+    /**
+     * An actionable explanation for common, fixable yt-dlp failures, or null.
+     */
+    public function failureHint(string $output, string $url): ?string
+    {
+        $low = strtolower($output);
+        $youtube = self::isYoutubeUrl($url);
+
+        if (str_contains($low, 'sign in to confirm') || str_contains($low, 'confirm you')) {
+            return 'The site wants a signed-in browser (bot check). Export a cookies.txt from a logged-in browser and set it as the Cookies file in the plugin settings.';
+        }
+        if ($youtube && (str_contains($low, '403') || str_contains($low, 'n challenge') || str_contains($low, 'only images are available'))) {
+            if ($this->jsRuntimeArg() === null) {
+                return 'YouTube requires a JavaScript runtime to unlock its video streams, and none was found. Install Deno on the server (curl -fsSL https://deno.land/install.sh | sh) and set the JS runtime setting to the full path of the deno binary. Also keep yt-dlp up to date (yt-dlp -U).';
+            }
+            return 'YouTube refused the download. Update yt-dlp (yt-dlp -U), since YouTube changes often. If it persists, the server IP may be blocked: set a Cookies file from a logged-in browser.';
+        }
+        if (str_contains($low, 'requested format is not available')) {
+            return 'No format at or below the Max resolution limit is available for this video.';
+        }
+        if (str_contains($low, '403')) {
+            return 'The site refused the download (403). Update yt-dlp (yt-dlp -U); some sites also need a Cookies file from a logged-in browser.';
+        }
+        return null;
     }
 
     /**
@@ -564,6 +685,7 @@ final class Downloader
             '--no-warnings',
             '--no-cache-dir',
             '--socket-timeout', (string) self::SOCKET_TIMEOUT,
+            ...$this->siteArgs($url),
             '--',
             $url,
         ];
@@ -582,7 +704,11 @@ final class Downloader
         }
         if ($result['exitCode'] !== 0) {
             $stderr = $this->sanitizeOutput($result['stderr']);
-            throw new \RuntimeException($stderr !== '' ? "yt-dlp could not read this URL: {$stderr}" : 'yt-dlp could not read this URL.');
+            $hint = $this->failureHint($result['stderr'], $url);
+            throw new \RuntimeException(
+                ($stderr !== '' ? "yt-dlp could not read this URL: {$stderr}" : 'yt-dlp could not read this URL.')
+                . ($hint !== null ? ' ' . $hint : '')
+            );
         }
 
         $json = json_decode($result['stdout'], true);
@@ -672,6 +798,7 @@ final class Downloader
             $cmd[] = '--max-filesize';
             $cmd[] = $this->maxFilesizeMb . 'M';
         }
+        array_push($cmd, ...$this->siteArgs($url));
         // `--` so the (user-supplied) URL can never be read as an option.
         $cmd[] = '--';
         $cmd[] = $url;
@@ -702,7 +829,11 @@ final class Downloader
                     "Could not run yt-dlp at \"{$this->ytDlpPath}\". Check it's installed and the path is correct in the plugin settings."
                 );
             }
-            throw new \RuntimeException($stderr !== '' ? "yt-dlp failed: {$stderr}" : 'yt-dlp failed with no output.');
+            $hint = $this->failureHint($result['stderr'], $url);
+            throw new \RuntimeException(
+                ($stderr !== '' ? "yt-dlp failed: {$stderr}" : 'yt-dlp failed with no output.')
+                . ($hint !== null ? ' ' . $hint : '')
+            );
         }
 
         $file = $this->findDownloadedFile($dir);

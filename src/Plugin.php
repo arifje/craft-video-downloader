@@ -117,10 +117,16 @@ class Plugin extends BasePlugin
             ];
         }
 
+        $runtime = \arifje\craftvideodownloader\services\Downloader::fromSettings($this->getSettings())->jsRuntimeArg();
+        $jsRuntimeStatus = $runtime !== null
+            ? Craft::t('app', 'Using: {runtime}', ['runtime' => $runtime])
+            : Craft::t('app', 'No JS runtime found. YouTube downloads will fail until Deno is installed and configured here.');
+
         return Craft::$app->getView()->renderTemplate('video-downloader/settings', [
-            'plugin'      => $this,
-            'settings'    => $this->getSettings(),
-            'assetFields' => $assetFields,
+            'plugin'          => $this,
+            'settings'        => $this->getSettings(),
+            'assetFields'     => $assetFields,
+            'jsRuntimeStatus' => $jsRuntimeStatus,
         ]);
     }
 
