@@ -21,6 +21,27 @@ The asset is created in exactly the folder/volume the field's **Upload files** b
 
 ---
 
+## Download tool (CP nav item)
+
+Besides the button on Assets fields, the plugin adds a **Video Downloader** page to the control-panel navigation for downloading a video straight to your own device (nothing is added to your Assets).
+
+1. Paste a URL (on a phone, the **Paste** button reads your clipboard) and tap **Show options**.
+2. The plugin asks yt-dlp what the post offers and lists **every available resolution**, with dimensions, frame rate, an estimated file size and whether an H.264 stream exists. Resolutions above your **Max resolution** ceiling or over the **Max file size** are listed but disabled, with the reason.
+3. Pick a format:
+   - **MP4 for Photos** (default): H.264 video + AAC audio, the combination iPhone and Android photo libraries import.
+   - **Best quality**: highest quality in any codec (VP9, AV1), merged to MP4 (or MKV). May not import into Photos.
+   - **Audio only**: the soundtrack, M4A when available.
+4. Tap **Download**. The download runs on the queue with the same live progress bar as the field button.
+5. When it's ready:
+   - **On a phone**: tap **Save to Photos**. This opens the native share sheet with the video; choose **Save Video** to put it in your photo library. (Browsers can't write to the photo library directly; the share sheet is the supported route. It needs iOS 15+ Safari or a current Android Chrome.)
+   - **On a desktop**: the file downloads automatically, and **Download file** is there as a fallback.
+
+Finished files are kept under `storage/video-downloader/files/` (never web-accessible), can only be fetched by the user who started the download, and are deleted after 24 hours.
+
+**Access.** Admins always have it. For other users, grant Craft's built-in **Access Video Downloader** permission (Settings, Users, user group or user, under *Access the control panel*). The tool can be switched off entirely with the **Download tool** setting; the nav item then disappears and the page returns 404. The same safeguards as the field button apply: SSRF guard, allowed hosts, resolution ceiling, size cap and timeout.
+
+---
+
 ## Requirements
 
 - Craft CMS 4 or Craft CMS 5 (PHP 8.0.2+ for Craft 4; Craft 5 itself requires PHP 8.2+)
@@ -65,6 +86,7 @@ Settings live at **Settings → Plugins → Video Downloader**:
 | Setting | Default | Notes |
 |---|---|---|
 | **Enabled** | on | Master switch for the button. |
+| **Download tool** | on | Shows the **Video Downloader** CP page. Non-admins also need the **Access Video Downloader** permission. |
 | **Apply to** | All Assets fields | Or limit to a chosen list of fields. |
 | **Fields** | – | The Assets fields that get the button when “Apply to” is set to a list. |
 | **Video-capable fields only** | on | Only show the button on fields that accept video (no file-type restriction, or *Video* among the allowed types). Leave on to skip image-only fields. |
@@ -158,8 +180,15 @@ Without a worker, Craft drains the queue during later control-panel requests, so
 Two executable suites live in `tests/` and run with **no Craft installation and no network** (downloads are mocked with a stub yt-dlp):
 
 ```bash
-php tests/php/run.php                      # URL/SSRF guard, download pipeline, cleanup, JobStore
-cd tests/js && npm install && npm test     # CP JS: filtering, Craft 4/5 name shapes, modal guard
+php tests/php/run.php                      # URL/SSRF guard, download pipeline, cleanup, JobStore, tool formats + storage
+cd tests/js && npm install && npm test     # CP JS: field button + download tool (options, phone share, desktop download)
+```
+
+An end-to-end script drives a real Craft install over HTTP (logins, CP page, nav item, permissions, inspect, queued download, owner-only file delivery, the disable switch) with the stub yt-dlp:
+
+```bash
+tests/craft/e2e.sh ~/Development/Claude/general-craft-4-test-container
+tests/craft/e2e.sh ~/Development/Claude/general-craft-5-test-container
 ```
 
 Checks that require a real Craft 4 **and** Craft 5 installation (permissions, folder resolution, asset creation, end-to-end) are documented as a checklist in [`tests/craft/INTEGRATION.md`](tests/craft/INTEGRATION.md).

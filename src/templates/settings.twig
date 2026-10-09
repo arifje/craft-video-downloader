@@ -7,6 +7,15 @@
     on: settings.enabled,
 }) }}
 
+{{ forms.lightswitchField({
+    label: 'Download tool'|t('app'),
+    instructions: 'Show the “Video Downloader” page in the control panel navigation, where users can inspect a URL, pick a resolution and format, and download the video to their device. Non-admin users need the “Access Video Downloader” permission (under Access the control panel).'|t('app'),
+    name: 'toolEnabled',
+    on: settings.toolEnabled,
+}) }}
+
+<hr>
+
 {{ forms.selectField({
     label: 'Apply to'|t('app'),
     instructions: 'Which Assets fields get the “Scrape URL” button.'|t('app'),

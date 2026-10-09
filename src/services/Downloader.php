@@ -159,6 +159,235 @@ final class Downloader
         return $this->format;
     }
 
+    /** The server-wide resolution ceiling (0 = none). */
+    public function maxResolution(): int
+    {
+        return self::normalizeResolution($this->maxResolution);
+    }
+
+    /** The server-wide file-size cap in bytes (0 = none). */
+    public function maxFilesizeBytes(): int
+    {
+        return max(0, $this->maxFilesizeMb) * 1024 * 1024;
+    }
+
+    /* ------------------------------------------------- download tool (CP) */
+
+    /** Tool preset: H.264 MP4 that imports straight into iOS/Android photo apps. */
+    public const PRESET_COMPATIBLE = 'compatible';
+
+    /** Tool preset: best quality in any codec, merged to MP4 (or MKV). */
+    public const PRESET_BEST = 'best';
+
+    /** Tool preset: audio only. */
+    public const PRESET_AUDIO = 'audio';
+
+    /** @var string[] */
+    public const PRESETS = [self::PRESET_COMPATIBLE, self::PRESET_BEST, self::PRESET_AUDIO];
+
+    /**
+     * Summarise a yt-dlp info dict into the resolution choices the download
+     * tool offers: one option per distinct short-side resolution, highest
+     * first, each with an estimated file size and whether it is allowed under
+     * the server ceiling and size cap.
+     *
+     * @param array<string,mixed> $info yt-dlp info dict (from {@see inspect()})
+     * @param int $ceiling server resolution ceiling (0 = none)
+     * @param int $maxBytes server file-size cap in bytes (0 = none)
+     * @return array{options: list<array<string,mixed>>, audio: array<string,mixed>|null}
+     */
+    public static function summarizeFormats(array $info, int $ceiling = 0, int $maxBytes = 0): array
+    {
+        $formats  = is_array($info['formats'] ?? null) ? $info['formats'] : [];
+        $duration = isset($info['duration']) ? (float) $info['duration'] : 0.0;
+
+        $sizeOf = static function (array $f) use ($duration): ?int {
+            if (!empty($f['filesize'])) {
+                return (int) $f['filesize'];
+            }
+            if (!empty($f['filesize_approx'])) {
+                return (int) $f['filesize_approx'];
+            }
+            if (!empty($f['tbr']) && $duration > 0) {
+                return (int) round((float) $f['tbr'] * 125 * $duration); // kbit/s → bytes
+            }
+            return null;
+        };
+
+        // Best audio-only stream (added to video-only sizes for an estimate).
+        $audio = null;
+        foreach ($formats as $f) {
+            $vcodec = (string) ($f['vcodec'] ?? '');
+            $acodec = (string) ($f['acodec'] ?? '');
+            if ($vcodec === 'none' && $acodec !== '' && $acodec !== 'none') {
+                $tbr = (float) ($f['tbr'] ?? $f['abr'] ?? 0);
+                if ($audio === null || $tbr > $audio['tbr']) {
+                    $audio = ['tbr' => $tbr, 'size' => $sizeOf($f), 'ext' => (string) ($f['ext'] ?? '')];
+                }
+            }
+        }
+
+        $groups = [];
+        foreach ($formats as $f) {
+            $vcodec = (string) ($f['vcodec'] ?? '');
+            if ($vcodec === 'none') {
+                continue; // audio-only
+            }
+            $w = (int) ($f['width'] ?? 0);
+            $h = (int) ($f['height'] ?? 0);
+            if ($w <= 0 && $h <= 0) {
+                continue; // dimensionless (e.g. storyboards, manifests)
+            }
+            if ((string) ($f['ext'] ?? '') === 'mhtml') {
+                continue; // storyboard images
+            }
+            $short = ($w > 0 && $h > 0) ? min($w, $h) : max($w, $h);
+
+            $hasAudio = ($f['acodec'] ?? 'none') !== 'none' && ($f['acodec'] ?? '') !== '';
+            $size = $sizeOf($f);
+            if ($size !== null && !$hasAudio && $audio !== null && $audio['size'] !== null) {
+                $size += $audio['size'];
+            }
+            $isH264Mp4 = str_starts_with($vcodec, 'avc1') && ($f['ext'] ?? '') === 'mp4';
+
+            $g = $groups[$short] ?? [
+                'resolution'     => $short,
+                'width'          => $w ?: null,
+                'height'         => $h ?: null,
+                'fps'            => null,
+                'estimatedBytes' => null,
+                'h264'           => false,
+            ];
+            // Keep the largest-size estimate in the group (the "best" stream).
+            if ($size !== null && ($g['estimatedBytes'] === null || $size > $g['estimatedBytes'])) {
+                $g['estimatedBytes'] = $size;
+                $g['width'] = $w ?: $g['width'];
+                $g['height'] = $h ?: $g['height'];
+            }
+            if (!empty($f['fps'])) {
+                $g['fps'] = max((int) $g['fps'], (int) round((float) $f['fps']));
+            }
+            $g['h264'] = $g['h264'] || $isH264Mp4;
+            $groups[$short] = $g;
+        }
+
+        krsort($groups, SORT_NUMERIC);
+
+        $options = [];
+        foreach ($groups as $g) {
+            $reason = null;
+            if ($ceiling > 0 && $g['resolution'] > $ceiling) {
+                $reason = 'ceiling';
+            } elseif ($maxBytes > 0 && $g['estimatedBytes'] !== null && $g['estimatedBytes'] > $maxBytes) {
+                $reason = 'size';
+            }
+            $options[] = $g + [
+                'label'   => self::resolutionLabel($g['resolution']),
+                'allowed' => $reason === null,
+                'reason'  => $reason,
+            ];
+        }
+
+        $audioOption = null;
+        if ($audio !== null) {
+            $audioOption = [
+                'estimatedBytes' => $audio['size'],
+                'ext'            => $audio['ext'],
+                'allowed'        => !($maxBytes > 0 && $audio['size'] !== null && $audio['size'] > $maxBytes),
+            ];
+        }
+
+        return ['options' => $options, 'audio' => $audioOption];
+    }
+
+    /** Human label for a short-side resolution: 2160 → "4K", 1080 → "1080p". */
+    public static function resolutionLabel(int $short): string
+    {
+        return match (true) {
+            $short >= 4320 => '8K',
+            $short >= 2160 => '4K',
+            default => $short . 'p',
+        };
+    }
+
+    /**
+     * Build the yt-dlp format selector for a download-tool request.
+     *
+     * $resolution is an orientation-aware short-side profile (see
+     * {@see buildFormatSelector()}); 0 means "best available". The caller is
+     * responsible for having already clamped it to the server ceiling.
+     *
+     *  - compatible: H.264 video in MP4 with AAC audio first (what iOS/Android
+     *    photo libraries import), then any MP4, then anything (merged to MP4).
+     *  - best: best video + best audio in any codec, then best pre-merged.
+     *  - audio: best audio, M4A preferred. Never resolution-capped.
+     */
+    public static function buildToolSelector(int $resolution, string $preset): string
+    {
+        if ($preset === self::PRESET_AUDIO) {
+            return 'ba[ext=m4a]/ba';
+        }
+
+        $short = self::normalizeResolution($resolution);
+        if ($short > 0) {
+            $long = (int) round($short * 16 / 9);
+            $caps = [
+                "[height<=?{$short}][width<=?{$long}]", // landscape (and square)
+                "[width<=?{$short}][height<=?{$long}]", // portrait
+            ];
+        } else {
+            $caps = [''];
+        }
+
+        $branches = [];
+        if ($preset === self::PRESET_COMPATIBLE) {
+            foreach ($caps as $cap) {
+                $branches[] = "bv*[vcodec^=avc1][ext=mp4]{$cap}+ba[ext=m4a]";
+            }
+            foreach ($caps as $cap) {
+                $branches[] = "b[ext=mp4][vcodec^=avc1]{$cap}";
+            }
+            foreach ($caps as $cap) {
+                $branches[] = "b[ext=mp4]{$cap}";
+            }
+        }
+        foreach ($caps as $cap) {
+            $branches[] = "bv*{$cap}+ba";
+        }
+        foreach ($caps as $cap) {
+            $branches[] = "b{$cap}";
+        }
+
+        return implode('/', $branches);
+    }
+
+    /**
+     * Clamp a requested short-side resolution to the server ceiling. 0 means
+     * "best available", which becomes the ceiling itself when one is set; a
+     * request can lower the effective cap but never raise it.
+     */
+    public static function clampToCeiling(int $requested, int $ceiling): int
+    {
+        $requested = self::normalizeResolution($requested);
+        if ($ceiling <= 0) {
+            return $requested;
+        }
+        if ($requested === 0) {
+            return $ceiling;
+        }
+        return min($requested, $ceiling);
+    }
+
+    /** yt-dlp --merge-output-format for a tool preset (null = don't pass it). */
+    public static function mergeFormatForPreset(string $preset): ?string
+    {
+        return match ($preset) {
+            self::PRESET_COMPATIBLE => 'mp4',
+            self::PRESET_BEST => 'mp4/mkv',
+            default => null,
+        };
+    }
+
     /* --------------------------------------------------------------- URLs */
 
     /**
@@ -310,10 +539,23 @@ final class Downloader
     public function probe(string $url): ?array
     {
         try {
-            $url = self::normalizeUrl($url, $this->allowedHosts);
+            return self::metaFromInfo($this->inspect($url));
         } catch (\Throwable $e) {
             return null;
         }
+    }
+
+    /**
+     * Ask yt-dlp for the full info JSON of a URL (metadata AND the list of
+     * available formats) without downloading any media.
+     *
+     * @return array<string,mixed> yt-dlp's info dict
+     * @throws \InvalidArgumentException when the URL is rejected
+     * @throws \RuntimeException when yt-dlp can't be run or can't read the URL
+     */
+    public function inspect(string $url): array
+    {
+        $url = self::normalizeUrl($url, $this->allowedHosts);
 
         $cmd = [
             $this->ytDlpPath,
@@ -326,19 +568,38 @@ final class Downloader
             $url,
         ];
 
-        // Cap the probe so a slow site can't eat the whole job timeout.
+        // Cap extraction so a slow site can't eat the whole job/request timeout.
         $probeTimeout = $this->timeout > 0 ? min(60, $this->timeout) : 60;
 
         $result = $this->runProcess($cmd, null, $probeTimeout, null);
-        if ($result === null || $result['timedOut'] || $result['exitCode'] !== 0) {
-            return null;
+        if ($result === null) {
+            throw new \RuntimeException(
+                "Could not run yt-dlp at \"{$this->ytDlpPath}\". Check it's installed and the path is correct in the plugin settings."
+            );
+        }
+        if ($result['timedOut']) {
+            throw new \RuntimeException('Reading the video information timed out.');
+        }
+        if ($result['exitCode'] !== 0) {
+            $stderr = $this->sanitizeOutput($result['stderr']);
+            throw new \RuntimeException($stderr !== '' ? "yt-dlp could not read this URL: {$stderr}" : 'yt-dlp could not read this URL.');
         }
 
         $json = json_decode($result['stdout'], true);
         if (!is_array($json)) {
-            return null;
+            throw new \RuntimeException('yt-dlp returned unreadable video information.');
         }
+        return $json;
+    }
 
+    /**
+     * Reduce a yt-dlp info dict to the lightweight metadata the UI shows.
+     *
+     * @param array<string,mixed> $json
+     * @return array<string,mixed>
+     */
+    public static function metaFromInfo(array $json): array
+    {
         $width  = isset($json['width']) ? (int) $json['width'] : null;
         $height = isset($json['height']) ? (int) $json['height'] : null;
 
@@ -365,11 +626,19 @@ final class Downloader
      *
      * @param callable|null $onProgress  Called with each progress update:
      *        ['percent'=>?float, 'downloaded'=>?int, 'total'=>?int, 'speed'=>?float, 'eta'=>?int]
+     * @param string|null $format  yt-dlp `-f` selector override (the download
+     *        tool's per-request choice); null = the configured/capped default.
+     * @param string|null $mergeOutputFormat  `--merge-output-format` value; null
+     *        omits the flag (audio-only downloads). Ignored unless $format is set.
      * @return array{path:string,filename:string,dir:string,stderr:string}
      * @throws \RuntimeException on any failure.
      */
-    public function download(string $url, ?callable $onProgress = null): array
-    {
+    public function download(
+        string $url,
+        ?callable $onProgress = null,
+        ?string $format = null,
+        ?string $mergeOutputFormat = 'mp4',
+    ): array {
         $url = self::normalizeUrl($url, $this->allowedHosts);
         $dir = $this->makeTempDir();
 
@@ -379,9 +648,8 @@ final class Downloader
 
         $cmd = [
             $this->ytDlpPath,
-            '-f', $this->effectiveFormat(),
+            '-f', $format ?? $this->effectiveFormat(),
             '-o', $outputTemplate,
-            '--merge-output-format', 'mp4',
             '--no-playlist',
             '--no-part',
             '--no-cache-dir',
@@ -395,6 +663,11 @@ final class Downloader
                 . '|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s'
                 . '|%(progress.speed)s|%(progress.eta)s',
         ];
+        $merge = $format === null ? 'mp4' : $mergeOutputFormat;
+        if ($merge !== null) {
+            $cmd[] = '--merge-output-format';
+            $cmd[] = $merge;
+        }
         if ($this->maxFilesizeMb > 0) {
             $cmd[] = '--max-filesize';
             $cmd[] = $this->maxFilesizeMb . 'M';

@@ -3,11 +3,14 @@
 namespace arifje\craftvideodownloader;
 
 use arifje\craftvideodownloader\assets\VideoDownloaderAsset;
+use arifje\craftvideodownloader\controllers\ToolController;
 use arifje\craftvideodownloader\models\Settings;
 use Craft;
 use craft\base\Model;
 use craft\base\Plugin as BasePlugin;
+use craft\events\RegisterUrlRulesEvent;
 use craft\events\TemplateEvent;
+use craft\web\UrlManager;
 use craft\web\View;
 use yii\base\Event;
 
@@ -19,9 +22,17 @@ use yii\base\Event;
  * yt-dlp, creates an Asset in the field's normal upload folder, and the finished
  * video is attached to the open field client-side (the editor then Saves).
  *
+ * It also provides a standalone download tool (CP nav item "Video
+ * Downloader", {@see controllers\ToolController}) that inspects a URL, offers
+ * the available resolutions and formats, and downloads the result to the
+ * user's device (with a share-sheet "Save to Photos" path on mobile).
+ *
  * Default action endpoints (Craft's standard plugin routing):
- *   POST /actions/video-downloader/download/create   enqueue a download
- *   GET  /actions/video-downloader/download/status    poll a job
+ *   POST /actions/video-downloader/download/create   enqueue a field download
+ *   POST /actions/video-downloader/download/status   poll a job (owner only)
+ *   POST /actions/video-downloader/tool/inspect      list a URL's resolutions
+ *   POST /actions/video-downloader/tool/create       enqueue a tool download
+ *   GET  /actions/video-downloader/tool/file         fetch a finished download
  *
  * @property-read Settings $settings
  * @method Settings getSettings()
@@ -30,10 +41,22 @@ class Plugin extends BasePlugin
 {
     public string $schemaVersion = '1.0.0';
     public bool $hasCpSettings = true;
+    public bool $hasCpSection = true;
 
     public function init(): void
     {
         parent::init();
+
+        // CP routing for the tool page ("/admin/video-downloader"). Access to
+        // that URL is gated by Craft's built-in accessPlugin-video-downloader
+        // permission, which Craft registers itself for plugins with a CP section.
+        Event::on(
+            UrlManager::class,
+            UrlManager::EVENT_REGISTER_CP_URL_RULES,
+            static function (RegisterUrlRulesEvent $event): void {
+                $event->rules['video-downloader'] = 'video-downloader/tool/index';
+            }
+        );
 
         // The control-panel integration is the whole plugin — only wire it up for
         // CP web requests. The instanceof check keeps us clear of console context
@@ -42,6 +65,26 @@ class Plugin extends BasePlugin
         if ($request instanceof \craft\web\Request && $request->getIsCpRequest()) {
             $this->attachCpAssets();
         }
+    }
+
+    /**
+     * The "Video Downloader" nav item, shown only when the tool is enabled and
+     * the current user may use it (a nav item to a 403 helps nobody).
+     */
+    public function getCpNavItem(): ?array
+    {
+        if (!$this->getSettings()->toolEnabled) {
+            return null;
+        }
+        $user = Craft::$app->getUser();
+        if (!$user->checkPermission('accessCp') || !$user->checkPermission(ToolController::PERMISSION_USE_TOOL)) {
+            return null;
+        }
+
+        $item = parent::getCpNavItem();
+        $item['label'] = Craft::t('app', 'Video Downloader');
+        $item['url'] = 'video-downloader';
+        return $item;
     }
 
     protected function createSettingsModel(): ?Model

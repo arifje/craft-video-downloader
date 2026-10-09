@@ -73,6 +73,17 @@ a section + entry, an admin, and a non-admin editor account.
 15. Multi-site: an editor without `editSite:` on the entry's site cannot start
     a download for that entry (element save check).
 
+## Download tool (automated)
+
+`tests/craft/e2e.sh <harness-dir>` covers the CP download tool end to end on
+a disposable install: nav item + page for admin and for a user with the
+"Access Video Downloader" permission, 403 and no nav item without it, inspect
+(resolution list, 4K disabled by the ceiling), SSRF and preset validation,
+queued download, owner-only file delivery as an attachment, other users
+getting 404 for file and status, and the "Download tool" switch. It creates
+and removes its own test users. Still manual: the share sheet on a real
+iPhone/Android ("Save to Photos" → "Save Video").
+
 ## Version/API smoke (per install)
 
 ```bash

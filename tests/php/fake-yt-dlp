@@ -20,6 +20,10 @@ $argvIn = $argv;
 array_shift($argvIn);
 
 $mode = getenv('VD_FAKE_MODE') ?: 'success';
+// Like real yt-dlp: --dump-single-json prints info JSON instead of downloading.
+if ($mode === 'success' && in_array('--dump-single-json', $argvIn, true)) {
+    $mode = 'probe';
+}
 
 // Optional argv capture so tests can assert exactly what yt-dlp was handed.
 $dump = getenv('VD_FAKE_DUMP_ARGS');
@@ -59,6 +63,16 @@ switch ($mode) {
             'ext' => 'mp4',
             'thumbnail' => 'https://example.invalid/thumb.jpg',
             'filesize_approx' => 12345,
+            'formats' => [
+                ['format_id' => 'sb0', 'ext' => 'mhtml', 'vcodec' => 'none', 'acodec' => 'none', 'width' => 48, 'height' => 27],
+                ['format_id' => '140', 'ext' => 'm4a', 'vcodec' => 'none', 'acodec' => 'mp4a.40.2', 'tbr' => 129, 'filesize' => 200000],
+                ['format_id' => '251', 'ext' => 'webm', 'vcodec' => 'none', 'acodec' => 'opus', 'tbr' => 110, 'filesize' => 170000],
+                ['format_id' => '134', 'ext' => 'mp4', 'vcodec' => 'avc1.4d401e', 'acodec' => 'none', 'width' => 640, 'height' => 360, 'fps' => 30, 'filesize' => 400000],
+                ['format_id' => '137', 'ext' => 'mp4', 'vcodec' => 'avc1.640028', 'acodec' => 'none', 'width' => 1920, 'height' => 1080, 'fps' => 30, 'filesize' => 3000000],
+                ['format_id' => '248', 'ext' => 'webm', 'vcodec' => 'vp9', 'acodec' => 'none', 'width' => 1920, 'height' => 1080, 'fps' => 60, 'filesize' => 2500000],
+                ['format_id' => '313', 'ext' => 'webm', 'vcodec' => 'vp9', 'acodec' => 'none', 'width' => 3840, 'height' => 2160, 'fps' => 30, 'filesize' => 9000000],
+                ['format_id' => '18', 'ext' => 'mp4', 'vcodec' => 'avc1.42001E', 'acodec' => 'mp4a.40.2', 'width' => 640, 'height' => 360, 'fps' => 30, 'tbr' => 500],
+            ],
         ]) . "\n";
         exit(0);
 

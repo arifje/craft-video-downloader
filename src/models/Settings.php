@@ -22,6 +22,13 @@ class Settings extends Model
     public bool $enabled = true;
 
     /**
+     * Whether the standalone download tool (CP nav item "Video Downloader")
+     * is available. Access additionally requires Craft's built-in
+     * "Access Video Downloader" plugin permission (admins always have it).
+     */
+    public bool $toolEnabled = true;
+
+    /**
      * Which Assets fields get the button:
      *  - 'all'  : every Assets field in the CP
      *  - 'list' : only the handles in {@see $fieldHandles}
@@ -81,7 +88,7 @@ class Settings extends Model
     public function defineRules(): array
     {
         return [
-            [['enabled', 'videoFieldsOnly'], 'boolean'],
+            [['enabled', 'toolEnabled', 'videoFieldsOnly'], 'boolean'],
             [['mode'], 'in', 'range' => [self::MODE_ALL, self::MODE_LIST]],
             [['fieldHandles'], 'each', 'rule' => ['string']],
             [['ytDlpPath', 'format', 'maxResolution', 'allowedHosts'], 'string'],

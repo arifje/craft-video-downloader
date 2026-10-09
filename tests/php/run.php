@@ -20,9 +20,11 @@ error_reporting(E_ALL);
 
 require __DIR__ . '/../../src/services/Downloader.php';
 require __DIR__ . '/../../src/services/JobStore.php';
+require __DIR__ . '/../../src/services/ToolStorage.php';
 
 use arifje\craftvideodownloader\services\Downloader;
 use arifje\craftvideodownloader\services\JobStore;
+use arifje\craftvideodownloader\services\ToolStorage;
 
 $pass = 0;
 $fail = 0;
@@ -209,6 +211,95 @@ $fIdx = array_search('-f', $args, true);
 check('argv: no cap leaves the format setting untouched', $fIdx !== false && ($args[$fIdx + 1] ?? '') === 'mp4/best');
 makeDownloader($scratch)->removeDir($res['dir']);
 putenv('VD_FAKE_DUMP_ARGS');
+
+/* ------------------------------------------------------- download tool */
+echo "Download tool: format summary\n";
+
+putenv('VD_FAKE_MODE=probe');
+$info = makeDownloader($scratch)->inspect('https://videos.example-cdn.test/tool');
+check('inspect returns formats', count($info['formats'] ?? []) === 8);
+
+$sum = Downloader::summarizeFormats($info, 1080, 0);
+$labels = array_column($sum['options'], 'label');
+check('one option per resolution, highest first', $labels === ['4K', '1080p', '360p'], json_encode($labels));
+$byRes = array_column($sum['options'], null, 'resolution');
+check('4K disabled by the 1080 ceiling', $byRes[2160]['allowed'] === false && $byRes[2160]['reason'] === 'ceiling');
+check('1080p allowed', $byRes[1080]['allowed'] === true);
+check('1080p size = largest video + best audio', $byRes[1080]['estimatedBytes'] === 3000000 + 200000);
+check('1080p flags H.264 mp4', $byRes[1080]['h264'] === true);
+check('1080p keeps max fps', $byRes[1080]['fps'] === 60);
+check('pre-merged 360p size from tbr*duration', $byRes[360]['estimatedBytes'] >= 775000);
+check('storyboards ignored', !isset($byRes[27]));
+check('best audio = m4a 140', $sum['audio'] !== null && $sum['audio']['ext'] === 'm4a' && $sum['audio']['estimatedBytes'] === 200000);
+
+$sum = Downloader::summarizeFormats($info, 0, 0);
+check('no ceiling: 4K allowed', array_column($sum['options'], null, 'resolution')[2160]['allowed'] === true);
+$sum = Downloader::summarizeFormats($info, 0, 2 * 1024 * 1024);
+$byRes = array_column($sum['options'], null, 'resolution');
+check('size cap disables too-big options', $byRes[1080]['allowed'] === false && $byRes[1080]['reason'] === 'size');
+check('size cap keeps small options', $byRes[360]['allowed'] === true);
+
+$portrait = ['duration' => 10, 'formats' => [
+    ['ext' => 'mp4', 'vcodec' => 'avc1', 'acodec' => 'mp4a', 'width' => 1080, 'height' => 1920, 'filesize' => 5],
+]];
+$opt = Downloader::summarizeFormats($portrait, 1080)['options'][0];
+check('portrait 1080x1920 is the 1080p profile and allowed', $opt['resolution'] === 1080 && $opt['allowed'] === true);
+check('no-dimension formats give no options', Downloader::summarizeFormats(['formats' => [['ext' => 'mp4', 'vcodec' => 'avc1']]])['options'] === []);
+
+echo "Download tool: selectors + clamping\n";
+check('labels', Downloader::resolutionLabel(2160) === '4K' && Downloader::resolutionLabel(4320) === '8K' && Downloader::resolutionLabel(720) === '720p');
+$sel = Downloader::buildToolSelector(1080, Downloader::PRESET_COMPATIBLE);
+check('compatible: H.264 mp4 + m4a first', str_starts_with($sel, 'bv*[vcodec^=avc1][ext=mp4][height<=?1080][width<=?1920]+ba[ext=m4a]'));
+$capped = true;
+foreach (explode('/', $sel) as $b) { if (!str_contains($b, '<=?')) { $capped = false; } }
+check('compatible: every branch capped', $capped);
+check('best: no codec restriction', !str_contains(Downloader::buildToolSelector(720, Downloader::PRESET_BEST), 'avc1'));
+check('best: capped at 720', str_contains(Downloader::buildToolSelector(720, Downloader::PRESET_BEST), '[height<=?720][width<=?1280]'));
+check('resolution 0: uncapped selector', !str_contains(Downloader::buildToolSelector(0, Downloader::PRESET_BEST), '<=?'));
+check('audio: m4a preferred, no cap', Downloader::buildToolSelector(1080, Downloader::PRESET_AUDIO) === 'ba[ext=m4a]/ba');
+check('merge formats', Downloader::mergeFormatForPreset('compatible') === 'mp4' && Downloader::mergeFormatForPreset('best') === 'mp4/mkv' && Downloader::mergeFormatForPreset('audio') === null);
+check('clamp: request above ceiling lowered', Downloader::clampToCeiling(2160, 1080) === 1080);
+check('clamp: request below ceiling kept', Downloader::clampToCeiling(720, 1080) === 720);
+check('clamp: 0 = ceiling when set', Downloader::clampToCeiling(0, 1080) === 1080);
+check('clamp: no ceiling keeps request', Downloader::clampToCeiling(2160, 0) === 2160 && Downloader::clampToCeiling(0, 0) === 0);
+
+echo "Download tool: argv for per-request formats\n";
+putenv('VD_FAKE_MODE=success');
+$dumpFile = $scratch . '/args2.json';
+putenv('VD_FAKE_DUMP_ARGS=' . $dumpFile);
+$d = makeDownloader($scratch, ['maxResolution' => 1080]);
+$res = $d->download('https://videos.example-cdn.test/t1', null, Downloader::buildToolSelector(720, 'compatible'), 'mp4');
+$args = json_decode((string) file_get_contents($dumpFile), true);
+$i = array_search('-f', $args, true);
+check('override replaces the -f selector', ($args[$i + 1] ?? '') === Downloader::buildToolSelector(720, 'compatible'));
+$m = array_search('--merge-output-format', $args, true);
+check('merge format passed', $m !== false && $args[$m + 1] === 'mp4');
+$d->removeDir($res['dir']);
+$res = $d->download('https://videos.example-cdn.test/t2', null, 'ba[ext=m4a]/ba', null);
+$args = json_decode((string) file_get_contents($dumpFile), true);
+check('audio: no merge flag', array_search('--merge-output-format', $args, true) === false);
+check('-- separator still last-but-one', $args[count($args) - 2] === '--');
+$d->removeDir($res['dir']);
+putenv('VD_FAKE_DUMP_ARGS');
+
+echo "Download tool: storage\n";
+$ts = new ToolStorage($scratch . '/files');
+$jid = str_repeat('c', 32);
+$src = $scratch . '/src-Fake [x].mp4';
+file_put_contents($src, 'data');
+$stored = $ts->store($jid, $src);
+check('store moves the file', is_file($stored) && !is_file($src));
+check('find returns it', $ts->find($jid) === realpath($stored));
+check('invalid id rejected', throws(fn() => $ts->find('../../etc')));
+check('unknown id → null', $ts->find(str_repeat('d', 32)) === null);
+check('delete removes dir', $ts->delete($jid) && !is_dir(dirname($stored)));
+check('delete refuses invalid id', $ts->delete('../x') === false);
+$old = str_repeat('e', 32);
+$ts->store($old, (function () use ($scratch) { $p = $scratch . '/o.mp4'; file_put_contents($p, 'x'); return $p; })());
+touch($scratch . '/files/' . $old, time() - 2 * 86400);
+check('cleanup purges expired downloads', $ts->cleanup() === 1 && $ts->find($old) === null);
+check('safeFilename strips unsafe chars', ToolStorage::safeFilename("a/b\"c\r\n.mp4") === 'a_b_c_.mp4');
+check('safeFilename never hidden/empty', ToolStorage::safeFilename('...') === 'video.mp4' && !str_starts_with(ToolStorage::safeFilename('.htaccess'), '.'));
 
 /* --------------------------------------------------- cleanup containment */
 echo "Cleanup containment\n";

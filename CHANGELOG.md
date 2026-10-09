@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.2.0 - 2026-10-09
+
+### Added
+- **Video Downloader CP page** (new nav item): paste a URL, see every
+  resolution the post offers (dimensions, fps, estimated size, H.264
+  availability), choose a format (MP4 for Photos, Best quality, Audio only)
+  and download the result to your own device. On phones a **Save to Photos**
+  button opens the native share sheet with the file; desktops download
+  automatically. Resolutions above the Max resolution ceiling or the size cap
+  are shown but disabled.
+- **Download tool** setting (on by default) to switch the page off.
+- Finished tool downloads are stored outside the web root, served only to the
+  user who started them, and deleted after 24 hours.
+- `tests/craft/e2e.sh`: end-to-end check of the tool against a real Craft
+  install (verified on Craft 4.18.9 and 5.11.3), plus jsdom tests for the
+  page and new offline PHP tests for format summarising, selectors, ceiling
+  clamping and storage containment.
+
+### Access
+- Uses Craft's built-in **Access Video Downloader** permission (registered
+  automatically for plugins with a CP section). Admins have it; grant it to
+  other user groups to give them the tool. The action endpoints enforce the
+  same permission, and the queue job re-checks it before downloading.
+
+
 ## 2.1.0 — 2026-10-05
 
 ### Added

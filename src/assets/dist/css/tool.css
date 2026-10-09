@@ -1,0 +1,210 @@
+/* Video Downloader — standalone CP download tool */
+
+/* Craft's .btn sets display:inline-flex, which beats the UA [hidden] rule, so
+   honour the hidden attribute explicitly inside the tool. */
+.vdt [hidden] {
+  display: none !important;
+}
+
+.vdt {
+  max-width: 760px;
+}
+
+.vdt-intro {
+  margin: 0 0 16px;
+}
+
+.vdt-urlrow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.vdt-urlrow .vdt-url {
+  flex: 1 1 260px;
+  min-width: 0;
+  direction: ltr;
+}
+
+.vdt-error {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: var(--red-050, #fdf2f2);
+  color: var(--error-color, #cf1124);
+  word-break: break-word;
+}
+
+.vdt-video {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-top: 20px;
+}
+
+.vdt-thumb {
+  width: 120px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex: 0 0 auto;
+  background: var(--gray-100, #e4edf6);
+}
+
+.vdt-videotext {
+  min-width: 0;
+}
+
+.vdt-title {
+  font-weight: 600;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.vdt-sub {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.vdt-h {
+  margin: 22px 0 8px;
+}
+
+.vdt-presets,
+.vdt-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.vdt-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px 10px 36px;
+  border: 1px solid var(--hairline-color, rgba(51, 64, 77, 0.1));
+  border-radius: 6px;
+  cursor: pointer;
+  background: var(--white, #fff);
+}
+
+.vdt-card input {
+  position: absolute;
+  left: 12px;
+  top: 13px;
+  margin: 0;
+}
+
+.vdt-card:has(input:checked) {
+  border-color: var(--link-color, #0b69a3);
+  box-shadow: 0 0 0 1px var(--link-color, #0b69a3);
+}
+
+.vdt-card--disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.vdt-cardtitle {
+  font-weight: 600;
+}
+
+.vdt-carddetail {
+  font-size: 12px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+.vdt-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+.vdt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.vdt-progress {
+  margin-top: 24px;
+}
+
+.vdt-stage {
+  font-weight: 600;
+}
+
+.vdt-bar {
+  position: relative;
+  margin-top: 10px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--gray-100, #e4edf6);
+  overflow: hidden;
+}
+
+.vdt-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0;
+  border-radius: 4px;
+  background: var(--enabled-color, #27ab83);
+  transition: width 0.25s ease;
+}
+
+.vdt-bar--indeterminate .vdt-bar-fill {
+  width: 33% !important;
+  transition: none;
+  animation: vdt-sweep 1.1s ease-in-out infinite;
+}
+
+@keyframes vdt-sweep {
+  0% { left: -35%; }
+  100% { left: 100%; }
+}
+
+.vdt-stats {
+  margin-top: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  min-height: 16px;
+}
+
+.vdt-done {
+  margin-top: 24px;
+  padding: 16px;
+  border-radius: 6px;
+  background: var(--gray-050, #f3f7fc);
+}
+
+.vdt-donetitle {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.vdt-file {
+  margin-top: 4px;
+  word-break: break-all;
+}
+
+@media (max-width: 600px) {
+  .vdt-urlrow .btn {
+    flex: 1 1 auto;
+  }
+  .vdt-actions .btn {
+    flex: 1 1 100%;
+    text-align: center;
+  }
+  .vdt-thumb {
+    width: 96px;
+    height: 64px;
+  }
+}

@@ -3,7 +3,7 @@
     "private": true,
     "description": "Headless regression tests for the CP JavaScript (jsdom + jquery, mocked Craft).",
     "scripts": {
-        "test": "node test.js"
+        "test": "node test.js && node test-tool.js"
     },
     "devDependencies": {
         "jquery": "^3.7.1",
