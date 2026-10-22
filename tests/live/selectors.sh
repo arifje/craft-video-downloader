@@ -16,7 +16,11 @@ foreach ([1080, 720, 480] as $r) {
 }' > "$TMP/sels.tsv"
 URLS=("$@")
 if [ ${#URLS[@]} -eq 0 ]; then
-  URLS=("https://x.com/djsnake/status/2108270710770561269/video/1" "https://x.com/FDW_VB/status/2063925722079518814")
+  URLS=(
+    "https://www.tiktok.com/@patroxofficial/video/6742501081818877190"  # portrait, has a watermarked "download" format
+    "https://x.com/djsnake/status/2108270710770561269/video/1"          # portrait 1080x1920
+    "https://x.com/FDW_VB/status/2063925722079518814"                   # landscape 1374x1080
+  )
 fi
 docker run --rm -v "$TMP:/s" python:3.12-slim sh -c '
   pip install -q yt-dlp >/dev/null 2>&1; echo "yt-dlp $(yt-dlp --version)"
@@ -24,7 +28,7 @@ docker run --rm -v "$TMP:/s" python:3.12-slim sh -c '
     echo "== $U"
     while IFS="	" read -r name sel; do
       printf "  %-18s -> " "$name"
-      yt-dlp --no-playlist --no-warnings --simulate -f "$sel" --print "%(format_id)s %(resolution)s" "$U" 2>&1 | tail -1
+      yt-dlp --no-playlist --no-warnings --simulate -f "$sel" --print "%(format_id)s %(resolution)s %(vcodec)s note=%(format_note)s" "$U" 2>&1 | tail -1
     done < /s/sels.tsv
   done' sh "${URLS[@]}"
 rm -rf "$TMP"

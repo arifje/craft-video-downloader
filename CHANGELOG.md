@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.4.1 - 2026-10-22
+
+### Fixed
+- **TikTok downloads came with the TikTok logo/watermark.** TikTok offers a
+  watermarked "download" file (no listed dimensions) next to clean streams.
+  Since 2.4.0 the orientation rules let dimensionless formats through, so on
+  a portrait TikTok the watermarked file won the first (landscape) rule.
+  Now:
+  - every rule excludes formats yt-dlp flags as watermarked
+    (`[format_note!*=?watermarked]`);
+  - orientation rules require real dimensions (strict `aspect_ratio`);
+    dimensionless files are only a last resort, and never a watermarked one
+    (a watermarked file is dimensionless too, so it would also slip past the
+    Max resolution cap). If no clean stream fits the limit, the download
+    fails with "format not available" instead of returning a watermarked or
+    over-limit file.
+- The "MP4" preset now recognises TikTok's H.264 streams (yt-dlp names them
+  `h264`, not `avc1`), both when choosing and in the options list.
+
+Verified with real yt-dlp (simulate) on a TikTok with a watermarked format
+and on portrait/landscape X videos: TikTok picks the clean H.264 stream at
+1080, 720, 576 and "best"; X picks are unchanged.
+
 ## 2.4.0 - 2026-10-09
 
 ### Fixed

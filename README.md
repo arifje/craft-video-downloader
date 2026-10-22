@@ -120,6 +120,10 @@ and set **JS runtime (YouTube)** to `$VIDEO_DOWNLOADER_JS_RUNTIME`. The settings
 
 Failed downloads now explain the likely fix (install Deno, update yt-dlp, add cookies) next to the yt-dlp error.
 
+### TikTok: no watermark
+
+TikTok offers both a watermarked "download" file and clean streams. The plugin always excludes formats yt-dlp flags as watermarked, so you get the clean version. If no clean stream fits your **Max resolution**, the download fails with "format not available" rather than falling back to the watermarked file.
+
 ### Capping resolution from `.env`
 
 Out of the box downloads are capped at the **1080 profile** (no 4K). The cap is orientation-aware: it admits landscape up to 1920x1080 *and* portrait up to 1080x1920 (Reels, TikTok, Shorts), instead of a naive height cap that would reject portrait HD. While a ceiling is active the plugin builds a hard-capped yt-dlp selector in which **every** fallback carries the cap, so a video only available above the limit fails cleanly rather than silently exceeding it; the **Format** setting applies only when the ceiling is off.

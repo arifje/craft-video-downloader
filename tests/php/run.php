@@ -185,7 +185,7 @@ $sel = Downloader::buildFormatSelector(1080);
 check('selector: landscape cap present', str_contains($sel, '[height<=?1080][width<=?1920]'));
 check('selector: portrait cap present', str_contains($sel, '[width<=?1080][height<=?1920]'));
 $branches = explode('/', $sel);
-check('selector: six branches', count($branches) === 6);
+check('selector: seven branches (3 tiers x 2 orientations + dimensionless)', count($branches) === 7);
 $allCapped = true;
 foreach ($branches as $b) {
     if (!str_contains($b, '<=?')) {
@@ -195,10 +195,14 @@ foreach ($branches as $b) {
 check('selector: every branch carries the cap', $allCapped, $sel);
 check('selector: pre-merged mp4 tier first', str_starts_with($branches[0], 'b[ext=mp4]'));
 check('selector: split-stream tier present', str_contains($sel, '+ba'));
-check('caps pinned to orientation', Downloader::orientationCaps(1080) === ['[aspect_ratio>=?1][height<=?1080][width<=?1920]', '[aspect_ratio<?1][width<=?1080][height<=?1920]']);
+check('caps strictly pinned to orientation (dimensionless never matches)', Downloader::orientationCaps(1080) === ['[aspect_ratio>=1][height<=?1080][width<=?1920]', '[aspect_ratio<1][width<=?1080][height<=?1920]']);
 $capped = true;
-foreach (explode('/', $sel) as $b) { if (!str_contains($b, 'aspect_ratio')) { $capped = false; } }
-check('selector: every branch orientation-pinned', $capped, $sel);
+foreach (array_slice(explode('/', $sel), 0, 6) as $b) { if (!str_contains($b, 'aspect_ratio')) { $capped = false; } }
+check('selector: every sized branch orientation-pinned', $capped, $sel);
+check('selector: last branch is the dimensionless fallback', end($branches) === 'b[height<=?1080][width<=?1080]' . Downloader::NO_WATERMARK);
+$clean = true;
+foreach ($branches as $b) { if (!str_contains($b, Downloader::NO_WATERMARK)) { $clean = false; } }
+check('selector: every branch excludes watermarked formats', $clean, $sel);
 check('selector: 720 profile has 1280 long side', str_contains(Downloader::buildFormatSelector(720), '[height<=?720][width<=?1280]'));
 
 putenv('VD_FAKE_MODE=success');
@@ -255,11 +259,27 @@ check('no-dimension formats give no options', Downloader::summarizeFormats(['for
 echo "Download tool: selectors + clamping\n";
 check('labels', Downloader::resolutionLabel(2160) === '4K' && Downloader::resolutionLabel(4320) === '8K' && Downloader::resolutionLabel(720) === '720p');
 $sel = Downloader::buildToolSelector(1080, Downloader::PRESET_COMPATIBLE);
-check('compatible: H.264 mp4 + m4a first', str_starts_with($sel, 'bv*[vcodec^=avc1][ext=mp4][aspect_ratio>=?1][height<=?1080][width<=?1920]+ba[ext=m4a]'));
+check('compatible: H.264 (avc1 or h264) mp4 + m4a first', str_starts_with($sel, "bv*[vcodec~='^(avc1|h264)'][ext=mp4][aspect_ratio>=1][height<=?1080][width<=?1920]"));
+$clean = true;
+foreach ([Downloader::PRESET_COMPATIBLE, Downloader::PRESET_BEST] as $pr) {
+    foreach ([0, 480, 1080] as $r) {
+        foreach (explode('/', Downloader::buildToolSelector($r, $pr)) as $b) {
+            if (!str_contains($b, Downloader::NO_WATERMARK)) { $clean = false; }
+        }
+    }
+}
+check('tool selectors never allow a watermarked format', $clean);
 $capped = true;
 foreach (explode('/', $sel) as $b) { if (!str_contains($b, '<=?')) { $capped = false; } }
 check('compatible: every branch capped', $capped);
 check('best: no codec restriction', !str_contains(Downloader::buildToolSelector(720, Downloader::PRESET_BEST), 'avc1'));
+$tt = ['duration' => 10, 'formats' => [
+    ['format_id' => 'download', 'ext' => 'mp4', 'vcodec' => 'h264', 'acodec' => 'aac', 'format_note' => 'watermarked'],
+    ['format_id' => 'h264_540p_1', 'ext' => 'mp4', 'vcodec' => 'h264', 'acodec' => 'aac', 'width' => 576, 'height' => 1024, 'filesize' => 2000000],
+]];
+$o = Downloader::summarizeFormats($tt, 1080)['options'];
+check('TikTok: watermarked dimensionless file not offered as an option', count($o) === 1 && $o[0]['resolution'] === 576);
+check('TikTok: h264 counts as H.264', $o[0]['h264'] === true);
 check('best: capped at 720', str_contains(Downloader::buildToolSelector(720, Downloader::PRESET_BEST), '[height<=?720][width<=?1280]'));
 check('resolution 0: uncapped selector', !str_contains(Downloader::buildToolSelector(0, Downloader::PRESET_BEST), '<=?'));
 check('audio: m4a preferred, no cap', Downloader::buildToolSelector(1080, Downloader::PRESET_AUDIO) === 'ba[ext=m4a]/ba');

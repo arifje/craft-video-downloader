@@ -245,21 +245,38 @@ final class Downloader
      */
     public static function buildFormatSelector(int $maxResolution): string
     {
-        $caps = self::orientationCaps(self::normalizeResolution($maxResolution));
+        $short = self::normalizeResolution($maxResolution);
+        $caps = self::orientationCaps($short);
+        $nw = self::NO_WATERMARK;
 
         $branches = [];
         foreach ($caps as $cap) {
-            $branches[] = "b[ext=mp4]{$cap}";   // pre-merged mp4, no ffmpeg needed
+            $branches[] = "b[ext=mp4]{$cap}{$nw}";   // pre-merged mp4, no ffmpeg needed
         }
         foreach ($caps as $cap) {
-            $branches[] = "bv*{$cap}+ba";       // split streams, merged to mp4
+            $branches[] = "bv*{$cap}{$nw}+ba";       // split streams, merged to mp4
         }
         foreach ($caps as $cap) {
-            $branches[] = "b{$cap}";            // any pre-merged format
+            $branches[] = "b{$cap}{$nw}";            // any pre-merged format
         }
+        // Dimensionless single-file sites. Never a watermarked file: those
+        // are dimensionless too, so they'd also slip past the cap; when no
+        // clean stream fits, failing with "format not available" is better.
+        $branches[] = 'b' . self::dimensionlessCap($short) . $nw;
 
         return implode('/', $branches);
     }
+
+    /**
+     * Excludes formats an extractor flags as watermarked. TikTok exposes its
+     * watermarked "download" file as a separate format (format_note
+     * "watermarked", no dimensions) next to the clean play streams. `?` keeps
+     * formats without a format_note.
+     */
+    public const NO_WATERMARK = '[format_note!*=?watermarked]';
+
+    /** yt-dlp regex for H.264 codec names (most sites say avc1, TikTok says h264). */
+    private const H264 = "[vcodec~='^(avc1|h264)']";
 
     /**
      * The two format filters of a resolution profile: one for landscape (and
@@ -267,8 +284,13 @@ final class Downloader
      * with `aspect_ratio`, because yt-dlp takes the FIRST alternative that
      * matches: without the pin, the landscape rule (height <= 1080) also
      * matches a low-res portrait stream such as 480x852, so a 1080x1920
-     * portrait video was downloaded at 480p. Formats without dimensions pass
-     * both (`?`), keeping dimensionless single-format sites working.
+     * portrait video was downloaded at 480p.
+     *
+     * The pin is strict (no `?`): a format without dimensions must NOT match
+     * an orientation rule, or it wins the first branch whenever that
+     * orientation has no real streams. That is how TikTok's dimensionless
+     * watermarked file beat the clean portrait streams. Dimensionless formats
+     * are handled by {@see dimensionlessCap()} in the final fallback instead.
      *
      * @return array{0:string,1:string}
      */
@@ -276,9 +298,20 @@ final class Downloader
     {
         $long = (int) round($short * 16 / 9);
         return [
-            "[aspect_ratio>=?1][height<=?{$short}][width<=?{$long}]", // landscape + square
-            "[aspect_ratio<?1][width<=?{$short}][height<=?{$long}]",  // portrait
+            "[aspect_ratio>=1][height<=?{$short}][width<=?{$long}]", // landscape + square
+            "[aspect_ratio<1][width<=?{$short}][height<=?{$long}]",  // portrait
         ];
+    }
+
+    /**
+     * Last-resort filter for formats without dimensions (sites that serve one
+     * dimensionless file). Any real stream passing it fits within S x S and
+     * would already have matched an orientation rule, so it opens no way
+     * around the cap.
+     */
+    public static function dimensionlessCap(int $short): string
+    {
+        return "[height<=?{$short}][width<=?{$short}]";
     }
 
     /**
@@ -383,7 +416,7 @@ final class Downloader
             if ($size !== null && !$hasAudio && $audio !== null && $audio['size'] !== null) {
                 $size += $audio['size'];
             }
-            $isH264Mp4 = str_starts_with($vcodec, 'avc1') && ($f['ext'] ?? '') === 'mp4';
+            $isH264Mp4 = (str_starts_with($vcodec, 'avc1') || str_starts_with($vcodec, 'h264')) && ($f['ext'] ?? '') === 'mp4';
 
             $g = $groups[$short] ?? [
                 'resolution'     => $short,
@@ -465,25 +498,31 @@ final class Downloader
 
         $short = self::normalizeResolution($resolution);
         $caps = $short > 0 ? self::orientationCaps($short) : [''];
+        $nw = self::NO_WATERMARK;
+        $h264 = self::H264;
 
         $branches = [];
         if ($preset === self::PRESET_COMPATIBLE) {
             foreach ($caps as $cap) {
-                $branches[] = "bv*[vcodec^=avc1][ext=mp4]{$cap}+ba[ext=m4a]";
+                $branches[] = "bv*{$h264}[ext=mp4]{$cap}{$nw}+ba[ext=m4a]";
             }
             foreach ($caps as $cap) {
-                $branches[] = "b[ext=mp4][vcodec^=avc1]{$cap}";
+                $branches[] = "b[ext=mp4]{$h264}{$cap}{$nw}";
             }
             foreach ($caps as $cap) {
-                $branches[] = "b[ext=mp4]{$cap}";
+                $branches[] = "b[ext=mp4]{$cap}{$nw}";
             }
         }
         foreach ($caps as $cap) {
-            $branches[] = "bv*{$cap}+ba";
+            $branches[] = "bv*{$cap}{$nw}+ba";
         }
         foreach ($caps as $cap) {
-            $branches[] = "b{$cap}";
+            $branches[] = "b{$cap}{$nw}";
         }
+        // Dimensionless single-file sites (never a watermarked file, see
+        // buildFormatSelector()).
+        $last = $short > 0 ? self::dimensionlessCap($short) : '';
+        $branches[] = "b{$last}{$nw}";
 
         return implode('/', $branches);
     }
