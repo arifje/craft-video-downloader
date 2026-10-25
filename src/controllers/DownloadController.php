@@ -4,17 +4,13 @@ namespace arifje\craftvideodownloader\controllers;
 
 use arifje\craftvideodownloader\jobs\DownloadJob;
 use arifje\craftvideodownloader\Plugin;
-use arifje\craftvideodownloader\services\Downloader;
-use arifje\craftvideodownloader\services\JobStore;
+use arifje\craftvideodownloader\services\FieldDownloads;
 use Craft;
 use craft\base\ElementInterface;
 use craft\base\FieldInterface;
-use craft\fields\Assets as AssetsField;
-use craft\models\VolumeFolder;
 use craft\web\Controller;
 use yii\web\BadRequestHttpException;
 use yii\web\ForbiddenHttpException;
-use yii\web\NotFoundHttpException;
 use yii\web\Response;
 
 /**
@@ -43,7 +39,7 @@ use yii\web\Response;
 class DownloadController extends Controller
 {
     /** Format presets an Assets field download may request (no audio-only). */
-    public const FIELD_PRESETS = [Downloader::PRESET_COMPATIBLE, Downloader::PRESET_BEST];
+    public const FIELD_PRESETS = FieldDownloads::FIELD_PRESETS;
 
     public function beforeAction($action): bool
     {
@@ -64,86 +60,31 @@ class DownloadController extends Controller
         $this->requirePostRequest();
         $this->requireAcceptsJson();
 
-        $request  = Craft::$app->getRequest();
-        $settings = Plugin::getInstance()->getSettings();
-        $user     = Craft::$app->getUser()->getIdentity();
+        $request   = Craft::$app->getRequest();
+        $user      = Craft::$app->getUser()->getIdentity();
+        $downloads = new FieldDownloads(Plugin::getInstance()->getSettings());
+        $downloads->assertEnabled();
 
-        if (!$settings->enabled) {
-            throw new ForbiddenHttpException('Video Downloader is disabled.');
-        }
-
-        // --- field ---------------------------------------------------------
         // Resolved by id, not handle: the field may live inside a nested
-        // context where handles aren't globally unique. getFieldById() finds a
-        // field in any context; the browser sends the id from the field's own
-        // element-select settings.
-        $fieldId = (int) $request->getRequiredBodyParam('fieldId');
-        $field   = $fieldId > 0 ? Craft::$app->getFields()->getFieldById($fieldId) : null;
-        if (!$field instanceof AssetsField) {
-            throw new BadRequestHttpException('Unknown or non-Assets field.');
-        }
-        if (!$settings->allowsField($field)) {
-            throw new ForbiddenHttpException('Video Downloader is not enabled for this field.');
-        }
+        // context where handles aren't globally unique. The browser sends the
+        // id from the field's own element-select settings.
+        $field = $downloads->field((int) $request->getRequiredBodyParam('fieldId'));
 
-        // --- site + element context ---------------------------------------
         $siteId = self::intParam($request->getBodyParam('siteId'));
-        if ($siteId !== null && Craft::$app->getSites()->getSiteById($siteId) === null) {
-            throw new BadRequestHttpException('Unknown site.');
-        }
+        $downloads->assertSite($siteId);
 
         $elementId = self::intParam($request->getBodyParam('elementId'));
         $element   = null;
         if ($elementId !== null) {
-            $element = Craft::$app->getElements()->getElementById($elementId, null, $siteId);
-            if ($element === null) {
-                throw new BadRequestHttpException('Unknown element.');
-            }
-            if (!$element->canSave($user)) {
-                throw new ForbiddenHttpException('You are not allowed to edit this element.');
-            }
-            if (!self::fieldIsAvailableToElement($field, $element)) {
-                Craft::warning("Video Downloader: field {$field->id} is not reachable from the layout of element {$elementId}.", __METHOD__);
-                throw new BadRequestHttpException('That field is not available on this element.');
-            }
+            $element = $downloads->element($elementId, $siteId, $user);
+            $downloads->assertFieldOnElement($field, $element);
         }
 
-        // --- URL -----------------------------------------------------------
-        try {
-            $url = Downloader::normalizeUrl((string) $request->getRequiredBodyParam('url'), $settings->getAllowedHostsList());
-        } catch (\InvalidArgumentException $e) {
-            throw new BadRequestHttpException($e->getMessage());
-        }
+        $url    = $downloads->url((string) $request->getRequiredBodyParam('url'));
+        $format = $downloads->format($request->getBodyParam('preset'), $request->getBodyParam('resolution', 0));
 
-        // --- optional choice from the options step -------------------------
-        // Without a preset the job uses the default (capped) format selector,
-        // which is what older clients and a direct "Download" get.
-        $preset = $request->getBodyParam('preset');
-        $preset = ($preset === null || $preset === '') ? null : (string) $preset;
-        if ($preset !== null && !in_array($preset, self::FIELD_PRESETS, true)) {
-            throw new BadRequestHttpException('Unknown format preset.');
-        }
-        $requested = $request->getBodyParam('resolution', 0);
-        if (!is_numeric($requested) || (int) $requested < 0) {
-            throw new BadRequestHttpException('Invalid resolution.');
-        }
-        $resolution = Downloader::clampToCeiling(
-            (int) $requested,
-            Downloader::fromSettings($settings)->maxResolution(),
-        );
-
-        // --- destination folder (resolved now, in web context) -------------
-        // resolveDynamicPathToFolderId() honours the field's restrict/default
-        // upload location settings and, for unsaved elements, may return the
-        // user's temporary-uploads folder — the same behavior as "Upload files".
-        try {
-            $folderId = $field->resolveDynamicPathToFolderId($element);
-            $folder   = Craft::$app->getAssets()->getFolderById($folderId);
-        } catch (\Throwable $e) {
-            Craft::warning('Video Downloader: could not resolve the upload folder: ' . $e->getMessage(), __METHOD__);
-            $folder = null;
-        }
-        if (!$folder instanceof VolumeFolder) {
+        $folder = $downloads->folder($field, $element, $user);
+        if ($folder === null) {
             Craft::$app->getResponse()->setStatusCode(409);
             return $this->asJson([
                 'success' => false,
@@ -151,37 +92,16 @@ class DownloadController extends Controller
             ]);
         }
 
-        $this->requireSaveAssetsPermissionByFolder($folder);
-
-        // --- enqueue -------------------------------------------------------
-        $store  = new JobStore();
-        $record = $store->create([
-            'userId'    => (int) $user->id,
-            'fieldId'   => (int) $field->id,
-            'folderId'  => (int) $folder->id,
-            'elementId' => $elementId,
-            'siteId'    => $siteId,
-        ]);
-        if ($record === null) {
+        $jobId = $downloads->enqueue($url, $field, $folder, $elementId, $siteId, $user, $format['preset'], $format['resolution']);
+        if ($jobId === null) {
             Craft::$app->getResponse()->setStatusCode(500);
             return $this->asJson(['success' => false, 'error' => 'Could not create the job record. Check that @storage is writable.']);
         }
 
-        $job = new DownloadJob();
-        $job->jobId      = $record['id'];
-        $job->url        = $url;
-        $job->fieldId    = (int) $field->id;
-        $job->folderId   = (int) $folder->id;
-        $job->siteId     = $siteId;
-        $job->uploaderId = (int) $user->id;
-        $job->preset     = $preset;
-        $job->resolution = $resolution;
-        Craft::$app->getQueue()->push($job);
-
         Craft::$app->getResponse()->setStatusCode(202);
         return $this->asJson([
             'success' => true,
-            'jobId'   => $record['id'],
+            'jobId'   => $jobId,
         ]);
     }
 
@@ -198,47 +118,21 @@ class DownloadController extends Controller
         $this->requirePostRequest();
         $this->requireAcceptsJson();
 
-        $request  = Craft::$app->getRequest();
-        $settings = Plugin::getInstance()->getSettings();
-        if (!$settings->enabled) {
-            throw new ForbiddenHttpException('Video Downloader is disabled.');
-        }
-
-        $fieldId = (int) $request->getRequiredBodyParam('fieldId');
-        $field   = $fieldId > 0 ? Craft::$app->getFields()->getFieldById($fieldId) : null;
-        if (!$field instanceof AssetsField) {
-            throw new BadRequestHttpException('Unknown or non-Assets field.');
-        }
-        if (!$settings->allowsField($field)) {
-            throw new ForbiddenHttpException('Video Downloader is not enabled for this field.');
-        }
+        $request   = Craft::$app->getRequest();
+        $downloads = new FieldDownloads(Plugin::getInstance()->getSettings());
+        $downloads->assertEnabled();
+        $downloads->field((int) $request->getRequiredBodyParam('fieldId'));
+        $url = $downloads->url((string) $request->getRequiredBodyParam('url'));
 
         try {
-            $url = Downloader::normalizeUrl((string) $request->getRequiredBodyParam('url'), $settings->getAllowedHostsList());
-        } catch (\InvalidArgumentException $e) {
-            throw new BadRequestHttpException($e->getMessage());
-        }
-
-        @set_time_limit(120);
-        $downloader = Downloader::fromSettings($settings);
-        try {
-            $info = $downloader->inspect($url);
+            $result = $downloads->inspect($url);
         } catch (\Throwable $e) {
             Craft::warning('Video Downloader: inspect failed: ' . $e->getMessage(), __METHOD__);
             Craft::$app->getResponse()->setStatusCode(422);
             return $this->asJson(['success' => false, 'error' => $e->getMessage()]);
         }
 
-        $summary = Downloader::summarizeFormats($info, $downloader->maxResolution(), $downloader->maxFilesizeBytes());
-
-        return $this->asJson([
-            'success'       => true,
-            'url'           => $url,
-            'meta'          => Downloader::metaFromInfo($info),
-            'options'       => $summary['options'],
-            'maxResolution' => $downloader->maxResolution(),
-            'maxFilesizeMb' => (int) $settings->maxFilesizeMb,
-        ]);
+        return $this->asJson(['success' => true] + $result);
     }
 
     /**
@@ -249,113 +143,23 @@ class DownloadController extends Controller
     {
         $this->requireAcceptsJson();
 
-        $id = (string) Craft::$app->getRequest()->getRequiredParam('jobId');
-        if (!preg_match('/^[a-f0-9]{32}$/', $id)) {
-            throw new BadRequestHttpException('Invalid jobId.');
-        }
+        $downloads = new FieldDownloads(Plugin::getInstance()->getSettings());
+        $status    = $downloads->status(
+            (string) Craft::$app->getRequest()->getRequiredParam('jobId'),
+            (int) Craft::$app->getUser()->getId(),
+        );
 
-        $record = (new JobStore())->get($id);
-        $userId = (int) Craft::$app->getUser()->getId();
-
-        // Unknown and not-owned are deliberately indistinguishable.
-        if ($record === null || (int) ($record['userId'] ?? 0) !== $userId) {
-            throw new NotFoundHttpException('Unknown or expired jobId.');
-        }
-
-        $status   = (string) ($record['status'] ?? 'unknown');
-        $response = [
-            'success'  => true,
-            'jobId'    => $record['id'] ?? $id,
-            'status'   => $status,
-            'stage'    => $record['stage'] ?? null,
-            'progress' => $record['progress'] ?? 0,
-            'meta'     => $record['meta'] ?? null,
-            'download' => $record['download'] ?? null,
-        ];
-        if ($status === 'done') {
-            $response['result'] = $record['result'] ?? null;
-        } elseif ($status === 'failed') {
-            $response['error'] = $record['error'] ?? 'The download failed.';
-        }
-
-        return $this->asJson($response);
+        return $this->asJson(['success' => true] + $status);
     }
 
     /* ------------------------------------------------------------ helpers */
 
     /**
-     * The same gate Craft's own assets/upload action applies: the user's own
-     * temporary-uploads folder is always allowed; anything else requires
-     * `saveAssets:` on the folder's volume.
-     */
-    private function requireSaveAssetsPermissionByFolder(VolumeFolder $folder): void
-    {
-        if (!$folder->volumeId) {
-            $temporaryFolder = Craft::$app->getAssets()->getUserTemporaryUploadFolder();
-            if ($temporaryFolder->id == $folder->id) {
-                return;
-            }
-            throw new ForbiddenHttpException('You are not allowed to upload to this folder.');
-        }
-
-        $volume = $folder->getVolume();
-        $this->requirePermission('saveAssets:' . $volume->uid);
-    }
-
-    /**
-     * Whether a field is reachable from an element's field layout — directly,
-     * or nested inside container fields (Craft 4 Matrix block types, Craft 5
-     * Matrix/CKEditor entry types, Neo/Super Table block types), detected by
-     * duck-typing so no version- or plugin-specific classes are referenced.
+     * Kept for callers of the 2.x API; the walk lives in FieldDownloads.
      */
     public static function fieldIsAvailableToElement(FieldInterface $field, ElementInterface $element): bool
     {
-        $layout = $element->getFieldLayout();
-        if ($layout === null) {
-            return true; // nothing to validate against
-        }
-        $seen = [];
-        return self::layoutContainsField($layout, (int) $field->id, 3, $seen);
-    }
-
-    /**
-     * @param array<int,bool> $seen
-     */
-    private static function layoutContainsField(mixed $layout, int $fieldId, int $depth, array &$seen): bool
-    {
-        if ($layout === null || !method_exists($layout, 'getCustomFields')) {
-            return false;
-        }
-        foreach ($layout->getCustomFields() as $layoutField) {
-            $id = (int) ($layoutField->id ?? 0);
-            if ($id === $fieldId) {
-                return true;
-            }
-            if ($depth < 1 || isset($seen[$id])) {
-                continue;
-            }
-            $seen[$id] = true;
-
-            $containers = [];
-            if (method_exists($layoutField, 'getEntryTypes')) {
-                $containers = $layoutField->getEntryTypes(); // Craft 5 Matrix, CKEditor
-            } elseif (method_exists($layoutField, 'getBlockTypes')) {
-                $containers = $layoutField->getBlockTypes(); // Craft 4 Matrix, Neo, Super Table
-            }
-            foreach ($containers as $container) {
-                if (!is_object($container) || !method_exists($container, 'getFieldLayout')) {
-                    continue;
-                }
-                try {
-                    if (self::layoutContainsField($container->getFieldLayout(), $fieldId, $depth - 1, $seen)) {
-                        return true;
-                    }
-                } catch (\Throwable $e) {
-                    // A container that can't produce a layout shouldn't veto the walk.
-                }
-            }
-        }
-        return false;
+        return FieldDownloads::fieldIsAvailableToElement($field, $element);
     }
 
     private static function intParam(mixed $value): ?int

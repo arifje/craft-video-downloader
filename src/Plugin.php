@@ -4,6 +4,7 @@ namespace arifje\craftvideodownloader;
 
 use arifje\craftvideodownloader\assets\VideoDownloaderAsset;
 use arifje\craftvideodownloader\controllers\ToolController;
+use arifje\craftvideodownloader\mcp\VideoTools;
 use arifje\craftvideodownloader\models\Settings;
 use Craft;
 use craft\base\Model;
@@ -65,6 +66,24 @@ class Plugin extends BasePlugin
         if ($request instanceof \craft\web\Request && $request->getIsCpRequest()) {
             $this->attachCpAssets();
         }
+
+        $this->registerMcpTools();
+    }
+
+    /**
+     * Offer the Scrape URL flow as MCP tools when Craft MCP Tools is
+     * installed. The class check keeps this plugin working without it.
+     */
+    private function registerMcpTools(): void
+    {
+        $mcp = 'arifje\\mcptools\\Mcp';
+        if (!class_exists($mcp)) {
+            return;
+        }
+
+        Event::on($mcp, $mcp::EVENT_REGISTER_TOOLS, static function ($event): void {
+            $event->addTool(VideoTools::class, 'video-downloader');
+        });
     }
 
     /**

@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **MCP tools** when Craft MCP Tools is installed, so an AI agent can do what
+  the Scrape URL button does: `video_inspect` reads a URL's details and
+  resolutions, `video_download` queues a download into an Assets field's
+  upload folder, and `video_download_status` follows it to the new asset.
+
+### Changed
+- The field download checks and enqueueing moved from `DownloadController`
+  into a `FieldDownloads` service that the control panel and the MCP tools
+  share. `DownloadController::fieldIsAvailableToElement()` still works and
+  delegates to it.
+
 ## 2.4.1 - 2026-10-22
 
 ### Fixed

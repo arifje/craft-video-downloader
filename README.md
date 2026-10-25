@@ -42,6 +42,16 @@ Finished files are kept under `storage/video-downloader/files/` (never web-acces
 
 ---
 
+## MCP tools
+
+With [Craft MCP Tools](https://github.com/arifje/craft-mcp-tools) installed, an AI agent can use the Scrape URL flow:
+
+- `video_inspect` (read only): title, uploader, duration, thumbnail and the allowed resolutions of a URL. Nothing is downloaded.
+- `video_download`: queues a download into the upload folder of an Assets field, optionally for a given entry, and returns a `jobId`.
+- `video_download_status`: follows the job; once `done` it gives the asset id and its natural key `{volume, path, filename}`, which the agent adds to the entry with `update_entry`.
+
+The tools run as the token's Craft user and apply the same checks as the button (field enabled, entry editable, upload permission on the volume), and the job checks them again when it runs. `video_download` is offered to `content` and `full` tokens with the Upload capability, only while `enableDangerousTools` is on, and needs a token connection (a download belongs to a user). Downloads run on Craft's queue, so the site needs a queue worker (see [The queue](#the-queue)).
+
 ## Requirements
 
 - Craft CMS 4 or Craft CMS 5 (PHP 8.0.2+ for Craft 4; Craft 5 itself requires PHP 8.2+)
