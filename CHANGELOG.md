@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.5.0 - 2026-10-25
 
 ### Added
 - **MCP tools** when Craft MCP Tools is installed, so an AI agent can do what
