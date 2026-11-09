@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.5.1 - 2026-11-09
 
 ### Fixed
 - **`video_download` put videos in the user's temporary uploads folder and
