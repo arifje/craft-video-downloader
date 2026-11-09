@@ -21,10 +21,12 @@ error_reporting(E_ALL);
 require __DIR__ . '/../../src/services/Downloader.php';
 require __DIR__ . '/../../src/services/JobStore.php';
 require __DIR__ . '/../../src/services/ToolStorage.php';
+require __DIR__ . '/../../src/mcp/TemporaryFolder.php';
 
 use arifje\craftvideodownloader\services\Downloader;
 use arifje\craftvideodownloader\services\JobStore;
 use arifje\craftvideodownloader\services\ToolStorage;
+use arifje\craftvideodownloader\mcp\TemporaryFolder;
 
 $pass = 0;
 $fail = 0;
@@ -423,6 +425,24 @@ $clean = $d->sanitizeOutput($raw);
 check('temp paths stripped', !str_contains($clean, $scratch));
 check('ERROR line kept', str_contains($clean, 'ERROR:'));
 check('long output capped', strlen($d->sanitizeOutput(str_repeat('ERROR: x', 500))) <= 401 + 3);
+
+/* ------------------------------------------------- MCP temporary folder */
+echo "MCP: temporary uploads folder\n";
+
+// dev.skoften.net: twice a video landed in the user's temporary uploads
+// folder and was reported as done. The refusal has to say what to pass.
+$noEntry = TemporaryFolder::refusal(null, false);
+check('without entryId: asks for entryId', str_contains($noEntry, 'pass entryId'));
+check('without entryId: names the Matrix block id', str_contains($noEntry, 'blockId'));
+check('says nothing was started', str_contains($noEntry, 'was not started'));
+
+$owner = TemporaryFolder::refusal(4629572, false);
+check('owner id for a block field: asks for the block id', str_contains($owner, "not on entry 4629572's own layout") && str_contains($owner, 'blockId'));
+
+$direct = TemporaryFolder::refusal(42, true);
+check('field on the entry itself: points at the upload location', str_contains($direct, 'entry 42') && !str_contains($direct, 'blockId'));
+
+check('status warning explains why the key is missing', str_contains(TemporaryFolder::statusWarning(), 'no natural key'));
 
 /* ------------------------------------------------------------------ done */
 

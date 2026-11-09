@@ -60,7 +60,7 @@ class VideoTools
         string $url,
         #[Schema(description: 'Handle of the Assets field the video is for; its upload location decides the folder.')]
         string $field,
-        #[Schema(description: 'The entry (or Matrix block entry) the video is for. Needed when the upload location uses the entry; the token\'s user must be allowed to edit it.')]
+        #[Schema(description: 'The entry the video is for; for a field inside a Matrix block, the block\'s own entry id (create_nested_entry returns it as blockId), not the owner\'s. Needed when the upload location uses the entry; the token\'s user must be allowed to edit it. A download that would land in the temporary uploads folder is refused.')]
         ?int $entryId = null,
         #[Schema(description: 'Site of the entry. Omit for the primary site.')]
         ?int $siteId = null,
@@ -89,6 +89,12 @@ class VideoTools
         $folder = $this->run(fn () => $downloads->folder($fieldModel, $element, $user));
         if ($folder === null) {
             throw new ToolCallException('Could not resolve this field\'s upload location. Set a Default Upload Location on the Assets field, or pass entryId when it depends on the entry.');
+        }
+        if (!$folder->volumeId) {
+            // The CP's staging folder for unsaved entries; nothing moves the
+            // file out of it over MCP. See TemporaryFolder.
+            $onLayout = $element !== null && $element->getFieldLayout()?->getFieldByHandle($field) !== null;
+            throw new ToolCallException(TemporaryFolder::refusal($entryId, $onLayout));
         }
 
         $jobId = $downloads->enqueue($normalized, $fieldModel, $folder, $entryId, $siteId, $user, $format['preset'], $format['resolution']);
@@ -120,7 +126,9 @@ class VideoTools
         $assetId = (int) ($status['result']['assetId'] ?? 0);
         if ($assetId > 0) {
             $asset = Asset::find()->id($assetId)->status(null)->one();
-            if ($asset instanceof Asset) {
+            if ($asset instanceof Asset && !$asset->getFolder()->volumeId) {
+                $status['warning'] = TemporaryFolder::statusWarning();
+            } elseif ($asset instanceof Asset) {
                 $key = ['volume' => $asset->getVolume()->handle, 'filename' => $asset->getFilename()];
                 $path = $asset->getFolder()->path ?? '';
                 if ($path !== '') {

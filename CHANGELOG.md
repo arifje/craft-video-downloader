@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **`video_download` put videos in the user's temporary uploads folder and
+  reported them as done.** When a field's upload location uses the entry (for
+  example `{owner.id}` on a field inside a Matrix block) and no entryId, or the
+  owner's id instead of the block's, was passed, Craft resolves to the
+  temporary uploads folder. That is a staging area the control panel empties on
+  save, but nothing moves the file over MCP. The asset had no volume, so it
+  could not be attached by natural key or previewed. Such downloads are now
+  refused before anything is queued, with a message naming what to pass (the
+  block's own entry id). The control panel's Scrape URL button is unchanged.
+- `video_download_status` now adds a `warning` instead of a `key` with
+  `volume: null` when a finished download sits in the temporary uploads folder.
+
 ## 2.5.0 - 2026-10-25
 
 ### Added
