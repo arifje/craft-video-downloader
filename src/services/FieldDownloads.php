@@ -188,7 +188,12 @@ final class FieldDownloads
         $job->uploaderId = (int) $user->id;
         $job->preset     = $preset;
         $job->resolution = $resolution;
-        Craft::$app->getQueue()->push($job);
+        // The queue's own id for the job: status() asks the queue about it
+        // while the record is not finished.
+        $queueId = Craft::$app->getQueue()->push($job);
+        if ($queueId !== null && $queueId !== '') {
+            (new JobStore())->update($record['id'], ['queueId' => (string) $queueId]);
+        }
 
         return $record['id'];
     }
@@ -229,6 +234,9 @@ final class FieldDownloads
             throw new NotFoundHttpException('Unknown or expired jobId.');
         }
 
+        // A job that failed before it could say so in its record is still
+        // "queued" there; the queue knows better.
+        $record   = QueueState::settle($record);
         $status   = (string) ($record['status'] ?? 'unknown');
         $response = [
             'jobId'    => $record['id'] ?? $jobId,

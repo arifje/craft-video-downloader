@@ -180,7 +180,10 @@ class ToolController extends Controller
         $job->preset = $preset;
         $job->resolution = $resolution;
         $job->userId = (int) $user->id;
-        Craft::$app->getQueue()->push($job);
+        $queueId = Craft::$app->getQueue()->push($job);
+        if ($queueId !== null && $queueId !== '') {
+            $store->update($record['id'], ['queueId' => (string) $queueId]);
+        }
 
         $this->response->setStatusCode(202);
         return $this->asJson(['success' => true, 'jobId' => $record['id']]);

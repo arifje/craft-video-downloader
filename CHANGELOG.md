@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.5.2 - 2026-11-12
+
+### Fixed
+- **A download that failed in the queue kept saying "queued".** A job reports
+  through its own record under `storage/video-downloader`. When the queue
+  worker may not write there (it runs as another system user than the website,
+  for one), the job failed in Craft's queue while its record stayed "queued"
+  for ever: the Scrape URL modal kept waiting and `video_download_status` told
+  an AI agent the download was still in the queue. The status now asks Craft's
+  queue as well: a job that failed there is reported as failed, with the
+  reason and without server paths, and a job that left the queue without a
+  result is reported as failed too.
+- A job that finds its record but may not write it stops before it downloads
+  anything, with a message that says what to fix, instead of a raw
+  `file_put_contents(): Permission denied`.
+- The jobs folder is created group-writable (0775), like Craft's own storage
+  folders, so a website and a queue worker that share a group can both write.
+  An existing folder is left as it is: if the queue runs as another user, make
+  `storage/video-downloader` writable for both.
+
 ## 2.5.1 - 2026-11-09
 
 ### Fixed

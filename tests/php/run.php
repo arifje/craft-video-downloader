@@ -21,10 +21,12 @@ error_reporting(E_ALL);
 require __DIR__ . '/../../src/services/Downloader.php';
 require __DIR__ . '/../../src/services/JobStore.php';
 require __DIR__ . '/../../src/services/ToolStorage.php';
+require __DIR__ . '/../../src/services/QueueState.php';
 require __DIR__ . '/../../src/mcp/TemporaryFolder.php';
 
 use arifje\craftvideodownloader\services\Downloader;
 use arifje\craftvideodownloader\services\JobStore;
+use arifje\craftvideodownloader\services\QueueState;
 use arifje\craftvideodownloader\services\ToolStorage;
 use arifje\craftvideodownloader\mcp\TemporaryFolder;
 
@@ -415,6 +417,42 @@ check('update unknown id → null', $store->update(str_repeat('b', 32), ['x' => 
 touch($storeDir . '/' . $rec['id'] . '.json', time() - 3 * 86400);
 $store->create([]);
 check('expired records purged on create', $store->get($rec['id']) === null);
+
+// A folder this process may not write in is an answer, not a PHP warning.
+if (function_exists('posix_geteuid') && posix_geteuid() !== 0) {
+    $locked = $scratch . '/jobs-locked';
+    $lockedStore = new JobStore($locked, 1);
+    $lockedRec = $lockedStore->create(['userId' => 1]);
+    chmod($locked, 0555);
+    $warned = false;
+    // As Craft's own handler does: a silenced warning is not an error.
+    set_error_handler(function (int $code) use (&$warned): bool {
+        if (error_reporting() & $code) {
+            $warned = true;
+        }
+        return true;
+    });
+    $result = $lockedStore->update($lockedRec['id'], ['status' => 'running']);
+    restore_error_handler();
+    chmod($locked, 0775);
+    check('an unwritable folder → null, no warning', $result === null && $warned === false);
+    check('the record is still what it was', $lockedStore->get($lockedRec['id'])['status'] === 'queued');
+}
+$fresh = $scratch . '/jobs-mode';
+(new JobStore($fresh, 1))->create([]);
+check('the jobs folder is group-writable', (fileperms($fresh) & 0020) === 0020);
+
+/* ------------------------------------------------------------ QueueState */
+echo "QueueState\n";
+
+check('a finished record is left alone', QueueState::settle(['status' => 'done', 'queueId' => '5']) === ['status' => 'done', 'queueId' => '5']);
+check('a record without a queue id is left alone', QueueState::settle(['status' => 'queued']) === ['status' => 'queued']);
+$denied = QueueState::reason('file_put_contents(/var/www/site/cms/storage/video-downloader/jobs/af65.json.6af5.tmp): Failed to open stream: Permission denied');
+check('a job that may not write its record says what to fix', str_contains($denied, 'storage/video-downloader') && str_contains($denied, 'writable for both') && !str_contains($denied, '/var/www'));
+$other = QueueState::reason('Could not open /var/www/site/cms/storage/runtime/temp/x.mp4 for reading');
+check('other failures keep their reason, without server paths', str_contains($other, 'Could not open [path] for reading') && !str_contains($other, '/var/www'));
+check('a web address is not taken for a path', str_contains(QueueState::reason('HTTP 403 for https://x.com/a/status/1'), 'https://x.com/a/status/1'));
+check('no reason points at the queue manager', str_contains(QueueState::reason(''), 'Queue Manager'));
 
 /* ------------------------------------------------------------- sanitiser */
 echo "Error sanitisation\n";

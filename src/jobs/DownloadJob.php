@@ -80,7 +80,13 @@ class DownloadJob extends BaseJob implements RetryableJobInterface
             }
         }
 
-        $store->update($this->jobId, ['status' => 'running', 'stage' => 'starting', 'progress' => 0.05]);
+        $started = $store->update($this->jobId, ['status' => 'running', 'stage' => 'starting', 'progress' => 0.05]);
+        if ($record !== null && $started === null) {
+            // Without its record the job could not report progress, its result
+            // or a failure: stop before anything is downloaded, with a reason
+            // the queue manager and the status both show.
+            throw new \RuntimeException(JobStore::NOT_WRITABLE);
+        }
 
         $dir = null;
         /** @var Downloader|null $downloader */

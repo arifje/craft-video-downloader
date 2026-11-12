@@ -15,6 +15,12 @@ use Craft;
  */
 final class JobStore
 {
+    /** Mode of the jobs folder when this class creates it. */
+    private const DIR_MODE = 0775;
+
+    /** What a job says when it finds its record but may not write it. */
+    public const NOT_WRITABLE = 'The queue worker may not write in storage/video-downloader. The queue runs as another system user than the website; make that folder writable for both, then start the download again.';
+
     private string $dir;
     private int $ttlDays;
 
@@ -110,13 +116,21 @@ final class JobStore
         if (!$this->isValidId($id)) {
             return false;
         }
-        if (!is_dir($this->dir) && !mkdir($this->dir, 0755, true) && !is_dir($this->dir)) {
-            return false;
+        if (!is_dir($this->dir)) {
+            // Group-writable, like Craft's own storage folders: the website and
+            // the queue worker often run as different users of one group, and
+            // both write here. chmod, because the umask may strip the bit.
+            if (!@mkdir($this->dir, self::DIR_MODE, true) && !is_dir($this->dir)) {
+                return false;
+            }
+            @chmod($this->dir, self::DIR_MODE);
         }
         $path = $this->path($id);
         $tmp  = $path . '.' . uniqid('', true) . '.tmp';
         $json = json_encode($record, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($json === false || file_put_contents($tmp, $json) === false) {
+        // Silenced: a folder this process may not write in is an answer
+        // (false), not a PHP warning that Craft turns into an exception.
+        if ($json === false || @file_put_contents($tmp, $json) === false) {
             return false;
         }
         if (!@rename($tmp, $path)) {
