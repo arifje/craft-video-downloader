@@ -1,3 +1,4 @@
+{% requireAdmin %}
 {% import '_includes/forms' as forms %}
 
 {{ forms.lightswitchField({
@@ -65,6 +66,24 @@
     value: settings.jsRuntime,
     suggestEnvVars: true,
     tip: jsRuntimeStatus,
+}) }}
+
+{{ forms.textareaField({
+    label: 'Cookies'|t('app'),
+    instructions: 'Paste a Netscape cookies.txt export (maximum 1 MiB). Leave blank to keep saved cookies. Saved contents are never displayed. Pasted cookies take precedence over Cookies file.'|t('app'),
+    name: 'cookiePassword',
+    value: '',
+    rows: 8,
+    inputAttributes: { autocomplete: 'off', spellcheck: 'false' },
+    tip: cookiesConfigured ? 'Saved cookies are configured.'|t('app') : (settings.resolvedCookieFile ? 'No pasted cookies are saved. Legacy Cookies file is configured.'|t('app') : 'No cookies are configured.'|t('app')),
+    errors: settings.getErrors('cookieFile'),
+}) }}
+
+{{ forms.checkboxField({
+    label: 'Clear saved cookies'|t('app'),
+    instructions: 'Remove pasted cookies on Save. The legacy Cookies file will be used if configured. Do not paste replacement cookies while clearing.'|t('app'),
+    name: 'clearCookies',
+    checked: false,
 }) }}
 
 {{ forms.autosuggestField({

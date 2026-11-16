@@ -44,6 +44,29 @@ if (count($positional) !== 1 || !str_starts_with($positional[0], 'http')) {
     exit(64);
 }
 
+// Offline credential assertion: fail unless the process receives the expected jar.
+if (($expected = getenv('VD_EXPECT_COOKIE')) !== false && $expected !== '') {
+    $index = array_search('--cookies', $argvIn, true);
+    $jar = $index === false ? '' : ($argvIn[$index + 1] ?? '');
+    if ($jar === '' || !str_contains((string) @file_get_contents($jar), $expected)) {
+        fwrite(STDERR, 'Expected private cookies were not provided.');
+        exit(65);
+    }
+    if (getenv('VD_COOKIE_ERROR')) {
+        fwrite(STDERR, "ERROR: " . file_get_contents($jar));
+        exit(1);
+    }
+    // Real yt-dlp writes its cookie jar on exit. Do not let that touch saved cookies.
+    file_put_contents($jar, "# Netscape HTTP Cookie File\n.example.test\tTRUE\t/\tFALSE\t0\tsession\tupdated-value\n");
+}
+
+if (getenv('VD_COOKIE_ECHO')) {
+    echo json_encode(['title' => getenv('VD_EXPECT_COOKIE'), 'duration' => 1,
+        'cookies' => getenv('VD_EXPECT_COOKIE'),
+        'formats' => [['http_headers' => ['Cookie' => getenv('VD_EXPECT_COOKIE')]]]]);
+    exit(0);
+}
+
 // Resolve the output dir from the -o template.
 $outDir = null;
 foreach ($argvIn as $i => $arg) {

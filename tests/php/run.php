@@ -19,6 +19,7 @@ declare(strict_types=1);
 error_reporting(E_ALL);
 
 require __DIR__ . '/../../src/services/Downloader.php';
+require __DIR__ . '/../../src/services/Cookies.php';
 require __DIR__ . '/../../src/services/JobStore.php';
 require __DIR__ . '/../../src/services/ToolStorage.php';
 require __DIR__ . '/../../src/services/QueueState.php';
@@ -75,6 +76,7 @@ function makeDownloader(string $scratch, array $overrides = []): Downloader
         $scratch,
         $overrides['jsRuntime'] ?? '',
         $overrides['cookieFile'] ?? '',
+        $overrides['cookieStore'] ?? null,
     );
 }
 
@@ -352,10 +354,7 @@ check('youtube gets --js-runtimes deno:<path>', ($yt[array_search('--js-runtimes
 check('youtube gets the EJS solver', in_array('ejs:github', $yt, true));
 check('non-youtube gets neither', $d->siteArgs('https://videos.example-cdn.test/v') === []);
 
-$cookies = $scratch . '/cookies.txt';
-file_put_contents($cookies, "# Netscape HTTP Cookie File\n");
-check('readable cookies file passed', in_array($cookies, makeDownloader($scratch, ['cookieFile' => $cookies])->siteArgs('https://videos.example-cdn.test/v'), true));
-check('missing cookies file ignored', makeDownloader($scratch, ['cookieFile' => $scratch . '/none.txt'])->siteArgs('https://videos.example-cdn.test/v') === []);
+
 
 putenv('VD_FAKE_MODE=success');
 $dumpFile = $scratch . '/args3.json';
@@ -481,6 +480,8 @@ $direct = TemporaryFolder::refusal(42, true);
 check('field on the entry itself: points at the upload location', str_contains($direct, 'entry 42') && !str_contains($direct, 'blockId'));
 
 check('status warning explains why the key is missing', str_contains(TemporaryFolder::statusWarning(), 'no natural key'));
+
+require __DIR__ . '/cookies.php';
 
 /* ------------------------------------------------------------------ done */
 

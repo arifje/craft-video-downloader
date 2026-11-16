@@ -31,7 +31,7 @@ class VideoTools
     #[McpTool(
         name: 'video_inspect',
         title: 'Inspect a video URL',
-        description: 'Read a video page URL (YouTube, TikTok, Instagram, X and anything else yt-dlp supports) without downloading it: title, uploader, duration, thumbnail and the resolutions that fit the size and resolution limits. Use before video_download to pick a resolution.',
+        description: 'Read a video page URL (YouTube, TikTok, Instagram, X and anything else yt-dlp supports) without downloading it: title, uploader, duration, thumbnail and the resolutions that fit the size and resolution limits. Use before video_download to pick a resolution. Uses the administrator-configured cookies automatically; credentials are never returned.',
         annotations: new ToolAnnotations(readOnlyHint: true, openWorldHint: true),
     )]
     #[McpToolMeta(category: ToolCategory::PLUGIN)]
@@ -51,7 +51,7 @@ class VideoTools
     #[McpTool(
         name: 'video_download',
         title: 'Download a video into an Assets field',
-        description: 'Download a video from a URL into the upload folder of an Assets field, as the "Scrape URL" button does. Runs as a queued job and returns a jobId: follow it with video_download_status until status is done, which gives the asset id and natural key. The asset is not added to the entry: put the key in the field with update_entry. Needs Craft\'s queue to be running.',
+        description: 'Download a video from a URL into the upload folder of an Assets field, as the "Scrape URL" button does. Uses the administrator-configured cookies when the worker runs. Runs as a queued job and returns a jobId: follow it with video_download_status until status is done, which gives the asset id and natural key. The asset is not added to the entry: put the key in the field with update_entry. Needs Craft\'s queue to be running.',
         annotations: new ToolAnnotations(destructiveHint: false, openWorldHint: true),
     )]
     #[McpToolMeta(category: ToolCategory::CONTENT, dangerous: true, capability: Capability::Upload)]

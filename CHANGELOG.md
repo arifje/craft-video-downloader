@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.5.3 - 2026-11-16
+
+- Added a write-only native Cookies textarea with private storage, replacement, explicit clearing and blank-input preservation.
+- Kept Cookies file and environment-variable support as fallback; pasted cookies take precedence.
+- Shared private per-process cookie snapshots across control-panel and MCP inspection and queued downloads, with atomic replacement, restrictive permissions and safe errors.
+- Added Netscape format/size validation and offline credential/concurrency regressions. Documented shared storage requirements for workers.
+
 ## 2.5.2 - 2026-11-12
 
 ### Fixed

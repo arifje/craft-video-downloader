@@ -6,6 +6,7 @@ use arifje\craftvideodownloader\assets\VideoDownloaderAsset;
 use arifje\craftvideodownloader\controllers\ToolController;
 use arifje\craftvideodownloader\mcp\VideoTools;
 use arifje\craftvideodownloader\models\Settings;
+use arifje\craftvideodownloader\services\Cookies;
 use Craft;
 use craft\base\Model;
 use craft\base\Plugin as BasePlugin;
@@ -40,6 +41,11 @@ use yii\base\Event;
  */
 class Plugin extends BasePlugin
 {
+    /** Request-only credentials, never part of the settings model. */
+    private mixed $_cookiePassword = '';
+    /** Explicit request-only deletion intent. */
+    private bool $_clearCookies = false;
+
     public string $schemaVersion = '1.0.0';
     public bool $hasCpSettings = true;
     public bool $hasCpSection = true;
@@ -47,6 +53,23 @@ class Plugin extends BasePlugin
     public function init(): void
     {
         parent::init();
+
+        // Remove credential input before validation, error rendering or debug collection.
+        $request = Craft::$app->getRequest();
+        if ($request instanceof \craft\web\Request && $request->getIsPost()
+            && $request->getBodyParam('pluginHandle') === $this->handle
+            && is_array($request->getBodyParam('settings'))) {
+            $body = $request->getBodyParams();
+            $this->_cookiePassword = $body['settings']['cookiePassword'] ?? '';
+            $this->_clearCookies = ($body['settings']['clearCookies'] ?? '') === '1';
+            unset($body['settings']['cookiePassword'], $body['settings']['clearCookies']);
+            unset($_POST['settings']['cookiePassword'], $_POST['settings']['clearCookies']);
+            unset($_REQUEST['settings']['cookiePassword'], $_REQUEST['settings']['clearCookies']);
+            if ($this->_cookiePassword !== '') {
+                $request->setRawBody('');
+            }
+            $request->setBodyParams($body);
+        }
 
         // CP routing for the tool page ("/admin/video-downloader"). Access to
         // that URL is gated by Craft's built-in accessPlugin-video-downloader
@@ -111,6 +134,35 @@ class Plugin extends BasePlugin
         return new Settings();
     }
 
+    /** Save credentials through the native admin/CSRF-protected settings lifecycle. */
+    public function beforeSaveSettings(): bool
+    {
+        if (!parent::beforeSaveSettings()) {
+            return false;
+        }
+        if ($this->_cookiePassword === '' && !$this->_clearCookies) {
+            return true;
+        }
+        $request = Craft::$app->getRequest();
+        if (!$request instanceof \craft\web\Request || !$request->getIsPost()
+            || !Craft::$app->getUser()->getIsAdmin() || !$request->validateCsrfToken()
+            || !Craft::$app->getConfig()->getGeneral()->allowAdminChanges) {
+            throw new \yii\web\ForbiddenHttpException('Cookie changes require an authorized settings request.');
+        }
+        try {
+            if (!is_string($this->_cookiePassword)) {
+                throw new \InvalidArgumentException('Cookies must be pasted as text.');
+            }
+            Cookies::forCraft()->save($this->_cookiePassword, $this->_clearCookies);
+            return true;
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            $this->getSettings()->addError('cookieFile', Craft::t('app', $e->getMessage()));
+            return false;
+        } finally {
+            $this->_cookiePassword = '';
+        }
+    }
+
     protected function settingsHtml(): ?string
     {
         // Offer the site's Assets fields so an admin can pick which ones get the
@@ -146,6 +198,7 @@ class Plugin extends BasePlugin
             'settings'        => $this->getSettings(),
             'assetFields'     => $assetFields,
             'jsRuntimeStatus' => $jsRuntimeStatus,
+            'cookiesConfigured' => Cookies::forCraft()->configured(),
         ]);
     }
 

@@ -102,6 +102,7 @@ Settings live at **Settings → Plugins → Video Downloader**:
 | **Video-capable fields only** | on | Only show the button on fields that accept video (no file-type restriction, or *Video* among the allowed types). Leave on to skip image-only fields. |
 | **yt-dlp path** | `yt-dlp` | Absolute path, or an env var like `$VIDEO_DOWNLOADER_YTDLP`. |
 | **JS runtime (YouTube)** | *(auto-detect Deno)* | Runtime yt-dlp uses to solve YouTube's challenge. Full path (e.g. `/home/deploy/.deno/bin/deno`), a bare name, or an env var like `$VIDEO_DOWNLOADER_JS_RUNTIME`. The settings page shows which runtime is in use. |
+| **Cookies** | *(none)* | Paste a Netscape cookies.txt export, up to 1 MiB. Stored privately; blank preserves, Clear saved cookies removes. Takes precedence over Cookies file. |
 | **Cookies file** | *(none)* | Optional cookies.txt from a logged-in browser, for sign-in or bot-check gated videos. Env var like `$VIDEO_DOWNLOADER_COOKIE_FILE`. |
 | **Max resolution** | `1080` | Resolution ceiling as a profile (short side): 1080 allows up to 1920x1080 landscape and 1080x1920 portrait while blocking 4K. Accepts an env var like `$VIDEO_DOWNLOADER_MAX_RESOLUTION`. Empty or `0` = no limit. |
 | **Format** | `mp4/bestvideo*+bestaudio/best` | yt-dlp `-f` selector, only used when **Max resolution** is empty/0 (a ceiling builds its own capped selector). The default avoids needing ffmpeg unless a merge is unavoidable. |
@@ -127,6 +128,52 @@ VIDEO_DOWNLOADER_JS_RUNTIME=/home/deploy/.deno/bin/deno
 ```
 
 and set **JS runtime (YouTube)** to `$VIDEO_DOWNLOADER_JS_RUNTIME`. The settings page then shows "Using: deno:/home/deploy/.deno/bin/deno". For YouTube URLs the plugin passes `--js-runtimes deno:<path>` and `--remote-components ejs:github` (yt-dlp fetches its challenge solver from GitHub). If YouTube still refuses ("Sign in to confirm you're not a bot"), the server IP is being challenged: export a cookies.txt from a logged-in browser and set **Cookies file**.
+
+### Private cookies and queue workers
+
+In **Settings → Video Downloader → Cookies**, paste the complete Netscape export,
+including its header. Windows line endings are normalized; cookie values and
+`#HttpOnly_` lines are preserved. The field always renders empty and shows whether
+pasted cookies are saved. Save with a blank field to preserve them, paste a new
+export to replace them, or select **Clear saved cookies** and Save to remove them.
+Replacement and clearing cannot be submitted together. Only administrators may
+change cookies, through Craft's CSRF-protected settings save flow; `allowAdminChanges`
+must permit changes.
+
+Pasted cookies take precedence over **Cookies file**, including a path supplied
+through `$VIDEO_DOWNLOADER_COOKIE_FILE` or `config/video-downloader.php`. Clearing
+pasted cookies restores that fallback; also empty the legacy setting to disable
+cookies entirely. Missing, unreadable or invalid configured files produce an error
+instead of silently downloading anonymously. Existing valid Netscape files need
+no migration. The same format validation and 1 MiB limit apply to legacy files.
+
+Credentials live in `storage/video-downloader-credentials/cookies.txt` under Craft's
+configured storage path, outside the web root. The directory uses mode `0700`, files
+use `0600`, and an internal `.gitignore` excludes the contents. Pasted credentials
+never enter the settings model or project config. Keep this directory excluded from
+source control, public mounts and ordinary backups; protect any deliberate credential
+backups. Storage failure is reported without showing cookie contents. Other plugin
+settings still use Craft's normal project config lifecycle. A later project config
+save failure can occur after the private cookie change; review cookie status before
+retrying.
+
+Web servers and queue workers must mount the **same persistent private storage** at
+Craft's storage path and run with a matching filesystem owner/UID. The filesystem
+must support atomic rename. Replicating project config does not replicate cookies.
+Do not use an ephemeral container layer for this directory. A web-root storage path
+is rejected. Existing legacy files must be readable on every worker too.
+
+Control-panel inspection/download and MCP `video_inspect`/queued `video_download`
+all resolve the same source. Workers resolve cookies at execution time, so pending
+jobs use the latest saved credentials. Each yt-dlp invocation receives its own
+private snapshot; replacing or clearing cookies does not revoke snapshots already
+in use. yt-dlp cannot overwrite the saved master or legacy file. Snapshots are
+removed after the process finishes or fails. After an abrupt worker/server kill,
+remove leftover `jar-*` files only when no downloader processes are running.
+Authenticated yt-dlp diagnostics are withheld to avoid disclosing credentials;
+errors still identify storage/validation failures and extraction failures. Cookie
+contents are never MCP inputs or response fields. Disable request-body capture in
+external proxies/APM for credential forms, as with Craft password forms.
 
 Failed downloads now explain the likely fix (install Deno, update yt-dlp, add cookies) next to the yt-dlp error.
 

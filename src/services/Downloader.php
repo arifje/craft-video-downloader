@@ -84,6 +84,8 @@ final class Downloader
         private readonly string $jsRuntime = '',
         /** Optional Netscape cookies.txt for sign-in/bot-check gated videos. */
         private readonly string $cookieFile = '',
+        /** Private master storage shared by web requests and queue workers. */
+        private readonly ?Cookies $cookieStore = null,
     ) {
     }
 
@@ -98,6 +100,7 @@ final class Downloader
             $settings->getAllowedHostsList(),
             jsRuntime: $settings->getResolvedJsRuntime(),
             cookieFile: $settings->getResolvedCookieFile(),
+            cookieStore: Cookies::forCraft(),
         );
     }
 
@@ -166,7 +169,7 @@ final class Downloader
 
     /**
      * Extra yt-dlp arguments for a URL: the EJS challenge solver + JS runtime
-     * for YouTube, and the cookies file when one is configured and readable.
+     * for YouTube. Cookie snapshots are added immediately before process execution.
      *
      * @return string[]
      */
@@ -180,10 +183,6 @@ final class Downloader
             }
             array_push($args, '--remote-components', 'ejs:github');
         }
-        $cookies = trim($this->cookieFile);
-        if ($cookies !== '' && is_file($cookies) && is_readable($cookies)) {
-            array_push($args, '--cookies', $cookies);
-        }
         return $args;
     }
 
@@ -196,13 +195,13 @@ final class Downloader
         $youtube = self::isYoutubeUrl($url);
 
         if (str_contains($low, 'sign in to confirm') || str_contains($low, 'confirm you')) {
-            return 'The site wants a signed-in browser (bot check). Export a cookies.txt from a logged-in browser and set it as the Cookies file in the plugin settings.';
+            return 'The site wants a signed-in browser (bot check). Export a cookies.txt from a logged-in browser and paste it into Cookies in the plugin settings.';
         }
         if ($youtube && (str_contains($low, '403') || str_contains($low, 'n challenge') || str_contains($low, 'only images are available'))) {
             if ($this->jsRuntimeArg() === null) {
                 return 'YouTube requires a JavaScript runtime to unlock its video streams, and none was found. Install Deno on the server (curl -fsSL https://deno.land/install.sh | sh) and set the JS runtime setting to the full path of the deno binary. Also keep yt-dlp up to date (yt-dlp -U).';
             }
-            return 'YouTube refused the download. Update yt-dlp (yt-dlp -U), since YouTube changes often. If it persists, the server IP may be blocked: set a Cookies file from a logged-in browser.';
+            return 'YouTube refused the download. Update yt-dlp (yt-dlp -U), since YouTube changes often. If it persists, the server IP may be blocked: paste Cookies from a logged-in browser.';
         }
         if (str_contains($low, 'requested format is not available')) {
             return 'No format at or below the Max resolution limit is available for this video.';
@@ -760,7 +759,7 @@ final class Downloader
         if (!is_array($json)) {
             throw new \RuntimeException('yt-dlp returned unreadable video information.');
         }
-        return $json;
+        return $this->redactCookieInfo($json, []);
     }
 
     /**
@@ -852,7 +851,12 @@ final class Downloader
             $this->handleLine($line, $onProgress);
         };
 
-        $result = $this->runProcess($cmd, $onLine, $this->timeout, $dir);
+        try {
+            $result = $this->runProcess($cmd, $onLine, $this->timeout, $dir);
+        } catch (\Throwable $e) {
+            $this->removeDir($dir);
+            throw $e;
+        }
 
         if ($result === null) {
             $this->removeDir($dir);
@@ -937,6 +941,64 @@ final class Downloader
      *         null when the process could not be started at all.
      */
     private function runProcess(array $cmd, ?callable $onLine, int $timeout, ?string $cwd): ?array
+    {
+        $jar = $this->cookieStore?->snapshot($this->cookieFile);
+        if ($jar === null && $this->cookieStore === null && $this->cookieFile !== '') {
+            throw new \RuntimeException('Private cookie storage is not configured.');
+        }
+        try {
+            if ($jar !== null) {
+                array_splice($cmd, array_search('--', $cmd, true), 0, ['--cookies', $jar]);
+            }
+            $credentialContent = $jar !== null ? (string) @file_get_contents($jar) : '';
+            $result = $this->executeProcess($cmd, $onLine, $timeout, $cwd);
+            if ($result !== null && $jar !== null) {
+                // yt-dlp diagnostics can contain cookie records/headers. Never publish them.
+                $result['stderr'] = $result['stderr'] === '' ? '' : 'Authenticated extraction failed or emitted diagnostics. Check cookies and yt-dlp configuration.';
+                $values = [];
+                foreach (explode("\n", $credentialContent) as $line) {
+                    $fields = explode("\t", $line);
+                    if (count($fields) === 7 && $fields[6] !== '') {
+                        $values[] = $fields[6];
+                    }
+                }
+                $info = json_decode($result['stdout'], true);
+                if (is_array($info)) {
+                    $result['stdout'] = json_encode($this->redactCookieInfo($info, $values)) ?: '{}';
+                }
+            }
+            return $result;
+        } finally {
+            if ($jar !== null) {
+                @unlink($jar);
+            }
+        }
+    }
+
+    /** Strip credential-bearing metadata recursively without damaging JSON numbers. */
+    private function redactCookieInfo(array $info, #[\SensitiveParameter] array $values): array
+    {
+        foreach ($info as $key => $value) {
+            if (in_array(strtolower((string) $key), ['cookies', 'cookie', 'http_headers', 'authorization'], true)) {
+                unset($info[$key]);
+            } elseif (is_array($value)) {
+                $info[$key] = $this->redactCookieInfo($value, $values);
+            } elseif (is_string($value)) {
+                foreach ($values as $secret) {
+                    if ($value === $secret) {
+                        $value = '[redacted]';
+                    } elseif (strlen($secret) >= 8) {
+                        $value = str_replace($secret, '[redacted]', $value);
+                    }
+                }
+                $info[$key] = $value;
+            }
+        }
+        return $info;
+    }
+
+    /** Execute argv without a shell; the caller owns credential snapshot cleanup. */
+    private function executeProcess(array $cmd, ?callable $onLine, int $timeout, ?string $cwd): ?array
     {
         $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
         $proc = @proc_open($cmd, $descriptors, $pipes, $cwd);

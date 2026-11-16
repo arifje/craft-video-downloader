@@ -90,3 +90,17 @@ iPhone/Android ("Save Video" button → "Save Video" in the share sheet).
 php craft plugin/install video-downloader   # installs cleanly
 # settings page renders, lists top-level + nested Assets fields, saves
 ```
+
+## Private cookie regression
+
+Run `php tests/php/run.php` from a writable copy in Docker. This includes separate
+PHP writer/reader processes, cookie validation, save/replace/clear/blank behavior,
+legacy precedence, permissions, and fake yt-dlp inspection/download assertions.
+
+In the disposable Craft 4 or Craft 5 Docker harness, run `php tests/craft/cookies.php`.
+It bootstraps `/var/www/html`, uses temporary credential storage and an in-memory
+project-config sink, and checks the native save lifecycle, admin/CSRF checks,
+configuration exclusion, environment fallback, empty native textarea rendering,
+and the shared MCP inspection/queue downloader factory. It makes no provider
+requests or database/config writes. It does not exercise an HTTP MCP transport or
+an asset-importing queue worker; retain the end-to-end queue checklist above.
