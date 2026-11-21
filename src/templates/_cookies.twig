@@ -1,15 +1,57 @@
 {% import '_includes/forms' as forms %}
 
+{% if cookiesConfigured %}
+    {% set cookieTip = cookiesSavedAt
+        ? 'Saved cookies are configured (last saved {date}). They stay in place until you paste new ones or clear them.'|t('app', { date: cookiesSavedAt|datetime('short') })
+        : 'Saved cookies are configured. They stay in place until you paste new ones or clear them.'|t('app') %}
+{% elseif settings.resolvedCookieFile %}
+    {% set cookieTip = 'No pasted cookies are saved. Legacy Cookies file is configured.'|t('app') %}
+{% else %}
+    {% set cookieTip = 'No cookies are configured.'|t('app') %}
+{% endif %}
+
 {{ forms.textareaField({
     label: 'Cookies'|t('app'),
-    instructions: 'Paste a Netscape cookies.txt export (maximum 1 MiB). Leave blank to keep saved cookies. Saved contents are never displayed. Pasted cookies take precedence over Cookies file.'|t('app'),
+    instructions: 'Paste a cookies.txt export (Netscape format) or a JSON export from an extension such as Cookie-Editor (maximum 1 MiB). For security the saved contents are never shown again, so this field is always empty after saving. Leave it blank to keep the saved cookies. Pasted cookies take precedence over Cookies file.'|t('app'),
     name: 'cookiePassword',
     value: '',
     rows: 8,
+    placeholder: cookiesConfigured ? '••••••••  Saved cookies are kept. Paste a new export here to replace them.'|t('app') : '# Netscape HTTP Cookie File'|t('app'),
     inputAttributes: { autocomplete: 'off', spellcheck: 'false' },
-    tip: cookiesConfigured ? 'Saved cookies are configured.'|t('app') : (settings.resolvedCookieFile ? 'No pasted cookies are saved. Legacy Cookies file is configured.'|t('app') : 'No cookies are configured.'|t('app')),
+    tip: cookieTip,
     errors: settings.getErrors('cookieFile'),
 }) }}
+
+{% if cookiesConfigured %}
+    <div class="field" id="vd-saved-cookies">
+        <div class="heading"><label>{{ 'Saved cookies'|t('app') }}</label></div>
+        {% if cookiesSummary %}
+            <table class="data fullwidth">
+                <thead><tr>
+                    <th>{{ 'Domain'|t('app') }}</th>
+                    <th>{{ 'Cookies'|t('app') }}</th>
+                    <th>{{ 'First expiry'|t('app') }}</th>
+                </tr></thead>
+                <tbody>
+                {% for row in cookiesSummary %}
+                    <tr>
+                        <td><code>{{ row.domain }}</code></td>
+                        <td>{{ row.count }}</td>
+                        <td>
+                            {% if row.expires is null %}{{ 'Session'|t('app') }}
+                            {% else %}{{ row.expires|date('short') }}{% if row.expires < now.timestamp %} <span class="error">{{ '(expired)'|t('app') }}</span>{% endif %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="light">{{ 'The saved cookie file could not be read.'|t('app') }}</p>
+        {% endif %}
+        <p class="light">{{ 'Cookie names and values are not shown.'|t('app') }}</p>
+    </div>
+{% endif %}
 
 {{ forms.checkboxField({
     label: 'Clear saved cookies'|t('app'),
@@ -17,4 +59,3 @@
     name: 'clearCookies',
     checked: false,
 }) }}
-

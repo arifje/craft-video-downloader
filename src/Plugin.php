@@ -164,7 +164,8 @@ class Plugin extends BasePlugin
             $this->savePostedCookies();
             return true;
         } catch (\InvalidArgumentException|\RuntimeException $e) {
-            $this->getSettings()->addError('cookieFile', Craft::t('app', $e->getMessage()));
+            // The pasted text is never echoed back, so say plainly that nothing was kept.
+            $this->getSettings()->addError('cookieFile', Craft::t('app', $e->getMessage()) . ' ' . Craft::t('app', 'Nothing was saved. Fix the export and paste it again.'));
             return false;
         }
     }
@@ -231,6 +232,8 @@ class Plugin extends BasePlugin
             'assetFields'     => $assetFields,
             'jsRuntimeStatus' => $jsRuntimeStatus,
             'cookiesConfigured' => Cookies::forCraft()->configured(),
+            'cookiesSavedAt'    => Cookies::forCraft()->savedAt(),
+            'cookiesSummary'    => Cookies::forCraft()->summary(),
         ]);
     }
 

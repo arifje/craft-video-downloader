@@ -5,7 +5,7 @@
     {{ actionInput('video-downloader/cookies/save') }}
     {{ hiddenInput('pluginHandle', 'video-downloader') }}
     {% namespace 'settings' %}
-        {% include 'video-downloader/_cookies' with { settings: settings, cookiesConfigured: cookiesConfigured } only %}
+        {% include 'video-downloader/_cookies' with { settings: settings, cookiesConfigured: cookiesConfigured, cookiesSavedAt: cookiesSavedAt ?? null, cookiesSummary: cookiesSummary ?? [] } only %}
     {% endnamespace %}
     <button type="submit" class="btn submit">{{ 'Save cookies'|t('app') }}</button>
 </form>

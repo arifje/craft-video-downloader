@@ -102,7 +102,7 @@ Settings live at **Settings → Plugins → Video Downloader**:
 | **Video-capable fields only** | on | Only show the button on fields that accept video (no file-type restriction, or *Video* among the allowed types). Leave on to skip image-only fields. |
 | **yt-dlp path** | `yt-dlp` | Absolute path, or an env var like `$VIDEO_DOWNLOADER_YTDLP`. |
 | **JS runtime (YouTube)** | *(auto-detect Deno)* | Runtime yt-dlp uses to solve YouTube's challenge. Full path (e.g. `/home/deploy/.deno/bin/deno`), a bare name, or an env var like `$VIDEO_DOWNLOADER_JS_RUNTIME`. The settings page shows which runtime is in use. |
-| **Cookies** | *(none)* | Paste a Netscape cookies.txt export, up to 1 MiB. Stored privately; blank preserves, Clear saved cookies removes. Takes precedence over Cookies file. |
+| **Cookies** | *(none)* | Paste a Netscape cookies.txt or JSON (Cookie-Editor) export, up to 1 MiB. Stored privately, never shown again (a table lists saved domains and expiry); blank preserves, Clear saved cookies removes. Takes precedence over Cookies file. |
 | **Cookies file** | *(none)* | Optional cookies.txt from a logged-in browser, for sign-in or bot-check gated videos. Env var like `$VIDEO_DOWNLOADER_COOKIE_FILE`. |
 | **Max resolution** | `1080` | Resolution ceiling as a profile (short side): 1080 allows up to 1920x1080 landscape and 1080x1920 portrait while blocking 4K. Accepts an env var like `$VIDEO_DOWNLOADER_MAX_RESOLUTION`. Empty or `0` = no limit. |
 | **Format** | `mp4/bestvideo*+bestaudio/best` | yt-dlp `-f` selector, only used when **Max resolution** is empty/0 (a ceiling builds its own capped selector). The default avoids needing ffmpeg unless a merge is unavoidable. |
@@ -131,10 +131,17 @@ and set **JS runtime (YouTube)** to `$VIDEO_DOWNLOADER_JS_RUNTIME`. The settings
 
 ### Private cookies and queue workers
 
-In **Utilities → Video Downloader Cookies**, paste the complete Netscape export,
-including its header. Windows line endings are normalized; cookie values and
-`#HttpOnly_` lines are preserved. The field always renders empty and shows whether
-pasted cookies are saved. Save with a blank field to preserve them, paste a new
+In **Utilities → Video Downloader Cookies**, paste a Netscape cookies.txt export
+or a JSON export from an extension such as Cookie-Editor or EditThisCookie (a
+Playwright storage state works too). JSON is converted to cookies.txt. A missing
+header, a BOM, spaces where tabs should be and decimal expiry times are fixed;
+cookie values and `#HttpOnly_` lines are preserved. A rejected paste names the line
+that is wrong, and nothing is saved.
+
+For security the field always renders empty after saving: saved cookie names and
+values are never put back into the page. Below the field a **Saved cookies** table
+shows each domain, its number of cookies and the first expiry (expired ones are
+marked), and the tip shows when the cookies were last saved. Save with a blank field to preserve them, paste a new
 export to replace them, or select **Clear saved cookies** and Save to remove them.
 Replacement and clearing cannot be submitted together. Only administrators may
 change cookies, through a CSRF-protected form. The utility works with

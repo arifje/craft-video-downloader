@@ -31,7 +31,7 @@ class CookiesController extends Controller
         try {
             Plugin::getInstance()->savePostedCookies();
         } catch (\InvalidArgumentException|\RuntimeException $e) {
-            return $this->asFailure(Craft::t('app', $e->getMessage()));
+            return $this->asFailure(Craft::t('app', $e->getMessage()) . ' ' . Craft::t('app', 'Nothing was saved. Fix the export and paste it again.'));
         }
         return $this->asSuccess(
             Craft::t('app', 'Video Downloader cookies saved.'),

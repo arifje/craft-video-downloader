@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.5 - 2026-11-21
+
+- The Cookies field now shows what is saved: a **Saved cookies** table lists each domain, its number of cookies and the first expiry (expired ones are marked), the tip shows when they were last saved, and the empty field says that saved cookies are kept. Cookie names and values are still never shown.
+- Pasting cookies is more forgiving: JSON exports (Cookie-Editor, EditThisCookie, Playwright) are converted to cookies.txt, and a missing header, a BOM, leading blank lines, spaces instead of tabs and decimal expiry times are fixed on save.
+- A rejected paste now names the line that is wrong and says that nothing was saved, instead of only clearing the field.
+
 ## 2.5.4 - 2026-11-21
 
 - Added an administrator-only Video Downloader Cookies utility for changing private cookies on production with `allowAdminChanges=false`, without saving project config.

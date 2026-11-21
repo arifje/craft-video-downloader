@@ -68,7 +68,7 @@
     tip: jsRuntimeStatus,
 }) }}
 
-{% include 'video-downloader/_cookies' with { settings: settings, cookiesConfigured: cookiesConfigured } only %}
+{% include 'video-downloader/_cookies' with { settings: settings, cookiesConfigured: cookiesConfigured, cookiesSavedAt: cookiesSavedAt ?? null, cookiesSummary: cookiesSummary ?? [] } only %}
 
 {{ forms.autosuggestField({
     label: 'Cookies file'|t('app'),

@@ -51,6 +51,8 @@ class CookieUtility extends Utility
         return Craft::$app->getView()->renderTemplate('video-downloader/_utilities/cookies', [
             'settings' => Plugin::getInstance()->getSettings(),
             'cookiesConfigured' => Cookies::forCraft()->configured(),
+            'cookiesSavedAt' => Cookies::forCraft()->savedAt(),
+            'cookiesSummary' => Cookies::forCraft()->summary(),
         ]);
     }
 }

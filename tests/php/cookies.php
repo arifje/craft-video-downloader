@@ -93,3 +93,32 @@ foreach ($children as $child) {
     $ok = proc_close($child) === 0 && $ok;
 }
 check('concurrent readers never see partial cookies', $ok);
+
+// Pasted exports in the shapes people actually copy (2.5.5).
+$lenient = new Cookies($scratch . '/credentials-lenient', $scratch . '/web');
+$tabbed = "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t1893456000\tSID\tabc def\n";
+$lenient->save(str_replace("\t", '   ', $tabbed));
+check('spaces instead of tabs are saved as tabs, value keeps its own space', $read($lenient) === $tabbed);
+$lenient->save("\xEF\xBB\xBF\n\n.youtube.com\tTRUE\t/\tTRUE\t1893456000.75\tSID\tabc def\n");
+check('BOM, blank lines, missing header and decimal expiry accepted', $read($lenient) === $tabbed);
+$json = json_encode([
+    ['domain' => '.youtube.com', 'hostOnly' => false, 'httpOnly' => true, 'name' => 'SID', 'path' => '/', 'secure' => true, 'expirationDate' => 1893456000.5, 'value' => 'abc'],
+    ['domain' => 'www.tiktok.com', 'hostOnly' => true, 'name' => 'tt', 'path' => '/', 'secure' => false, 'session' => true, 'value' => 'x'],
+]);
+$lenient->save($json);
+check('Cookie-Editor JSON converted to Netscape', $read($lenient) === "# Netscape HTTP Cookie File\n#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t1893456000\tSID\tabc\nwww.tiktok.com\tFALSE\t/\tFALSE\t0\ttt\tx\n");
+$lenient->save(json_encode(['cookies' => [['domain' => '.x.com', 'name' => 'auth', 'value' => 'v', 'path' => '/', 'expires' => -1, 'httpOnly' => false, 'secure' => true]]]));
+check('Playwright storage state converted', $read($lenient) === "# Netscape HTTP Cookie File\n.x.com\tTRUE\t/\tTRUE\t0\tauth\tv\n");
+check('broken JSON rejected with a clear message', throws(fn() => $lenient->save('[{"domain":'), 'JSON'));
+check('JSON cookie without a name rejected', throws(fn() => $lenient->save('[{"domain":".a.test","value":"v"}]'), 'JSON cookie 1'));
+check('invalid record names its line', throws(fn() => $lenient->save("# Netscape HTTP Cookie File\n.a.test\tTRUE\t/\tFALSE\t0\tok\tv\nnot a cookie\n"), 'Line 3'));
+$lenient->save($json);
+$summary = $lenient->summary();
+check('summary lists domains, counts and first expiry', $summary === [
+    ['domain' => 'www.tiktok.com', 'count' => 1, 'expires' => null],
+    ['domain' => 'youtube.com', 'count' => 1, 'expires' => 1893456000],
+]);
+check('summary never contains names or values', !str_contains(json_encode($summary), 'SID') && !str_contains(json_encode($summary), 'abc'));
+check('saved time reported', abs(($lenient->savedAt() ?? 0) - time()) < 5);
+$lenient->save('', true);
+check('no summary or saved time after clearing', $lenient->summary() === [] && $lenient->savedAt() === null);
