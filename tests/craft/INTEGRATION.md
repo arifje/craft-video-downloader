@@ -104,3 +104,8 @@ configuration exclusion, environment fallback, empty native textarea rendering,
 and the shared MCP inspection/queue downloader factory. It makes no provider
 requests or database/config writes. It does not exercise an HTTP MCP transport or
 an asset-importing queue worker; retain the end-to-end queue checklist above.
+
+The cookie lifecycle suite also runs `cookie-utility.php`: native utility registration
+and rendering, POST action execution with `allowAdminChanges=false`, admin/anonymous
+and CSRF rejection, blank/replacement/clear/invalid input, safe responses, and zero
+project-config writes. Run on both supported Craft majors.

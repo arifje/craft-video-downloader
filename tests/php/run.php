@@ -374,6 +374,10 @@ check('youtube 403 without runtime → install Deno hint', $h !== null && str_co
 $h = $d->failureHint('ERROR: unable to download video data: HTTP Error 403: Forbidden', 'https://www.youtube.com/watch?v=x');
 check('youtube 403 with runtime → update yt-dlp / cookies hint', $h !== null && str_contains($h, 'yt-dlp -U') && !str_contains($h, 'Install Deno'));
 check('sign-in check → cookies hint', str_contains((string) $d->failureHint('Sign in to confirm you’re not a bot', 'https://www.youtube.com/watch?v=x'), 'cookies'));
+check('update boilerplate is not a bot-check hint', $d->failureHint('ERROR: Extraction failed. Confirm you are on the latest version using yt-dlp -U', 'https://videos.example-cdn.test/x') === null);
+$tiktokHint = $d->failureHint('ERROR: [TikTok] 7705869120595610902: Unexpected response from webpage request; please report this issue. Confirm you are on the latest version using yt-dlp -U', 'https://www.tiktok.com/@paorsara/video/7705869120595610902');
+check('TikTok unexpected response gets an extractor-specific hint', str_contains((string) $tiktokHint, 'could not recognize') && !str_contains((string) $tiktokHint, 'signed-in browser'));
+check('explicit bot check still recognized', str_contains((string) $d->failureHint("Confirm you're not a bot", 'https://videos.example-cdn.test/x'), 'signed-in browser'));
 check('unrelated error → no hint', $d->failureHint('ERROR: Unsupported URL', 'https://videos.example-cdn.test/x') === null);
 
 putenv('VD_FAKE_MODE=forbidden');

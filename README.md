@@ -131,14 +131,19 @@ and set **JS runtime (YouTube)** to `$VIDEO_DOWNLOADER_JS_RUNTIME`. The settings
 
 ### Private cookies and queue workers
 
-In **Settings → Video Downloader → Cookies**, paste the complete Netscape export,
+In **Utilities → Video Downloader Cookies**, paste the complete Netscape export,
 including its header. Windows line endings are normalized; cookie values and
 `#HttpOnly_` lines are preserved. The field always renders empty and shows whether
 pasted cookies are saved. Save with a blank field to preserve them, paste a new
 export to replace them, or select **Clear saved cookies** and Save to remove them.
 Replacement and clearing cannot be submitted together. Only administrators may
-change cookies, through Craft's CSRF-protected settings save flow; `allowAdminChanges`
-must permit changes.
+change cookies, through a CSRF-protected form. The utility works with
+`allowAdminChanges=false` because it changes private runtime credentials, not
+project config. After deploying the plugin version containing this utility once,
+production cookie updates need no further code releases or project-config rollout.
+
+The existing **Settings → Video Downloader → Cookies** controls remain available
+for compatibility; that settings page still requires `allowAdminChanges=true`.
 
 Pasted cookies take precedence over **Cookies file**, including a path supplied
 through `$VIDEO_DOWNLOADER_COOKIE_FILE` or `config/video-downloader.php`. Clearing

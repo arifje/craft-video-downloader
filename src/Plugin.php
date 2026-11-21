@@ -7,11 +7,14 @@ use arifje\craftvideodownloader\controllers\ToolController;
 use arifje\craftvideodownloader\mcp\VideoTools;
 use arifje\craftvideodownloader\models\Settings;
 use arifje\craftvideodownloader\services\Cookies;
+use arifje\craftvideodownloader\utilities\CookieUtility;
 use Craft;
 use craft\base\Model;
 use craft\base\Plugin as BasePlugin;
+use craft\events\RegisterComponentTypesEvent;
 use craft\events\RegisterUrlRulesEvent;
 use craft\events\TemplateEvent;
+use craft\services\Utilities;
 use craft\web\UrlManager;
 use craft\web\View;
 use yii\base\Event;
@@ -90,6 +93,17 @@ class Plugin extends BasePlugin
             $this->attachCpAssets();
         }
 
+        // Craft 4 and 5 use different names for the utility registration event.
+        Event::on(
+            Utilities::class,
+            defined(Utilities::class . '::EVENT_REGISTER_UTILITIES')
+                ? Utilities::EVENT_REGISTER_UTILITIES
+                : Utilities::EVENT_REGISTER_UTILITY_TYPES,
+            static function (RegisterComponentTypesEvent $event): void {
+                $event->types[] = CookieUtility::class;
+            }
+        );
+
         $this->registerMcpTools();
     }
 
@@ -143,23 +157,41 @@ class Plugin extends BasePlugin
         if ($this->_cookiePassword === '' && !$this->_clearCookies) {
             return true;
         }
-        $request = Craft::$app->getRequest();
-        if (!$request instanceof \craft\web\Request || !$request->getIsPost()
-            || !Craft::$app->getUser()->getIsAdmin() || !$request->validateCsrfToken()
-            || !Craft::$app->getConfig()->getGeneral()->allowAdminChanges) {
-            throw new \yii\web\ForbiddenHttpException('Cookie changes require an authorized settings request.');
+        if (!Craft::$app->getConfig()->getGeneral()->allowAdminChanges) {
+            throw new \yii\web\ForbiddenHttpException('Administrative changes are disallowed in this environment.');
         }
         try {
-            if (!is_string($this->_cookiePassword)) {
-                throw new \InvalidArgumentException('Cookies must be pasted as text.');
-            }
-            Cookies::forCraft()->save($this->_cookiePassword, $this->_clearCookies);
+            $this->savePostedCookies();
             return true;
         } catch (\InvalidArgumentException|\RuntimeException $e) {
             $this->getSettings()->addError('cookieFile', Craft::t('app', $e->getMessage()));
             return false;
+        }
+    }
+
+    /**
+     * Save request-only credentials without writing project config.
+     * Utilities intentionally permit this operational change on locked production sites.
+     *
+     * @throws \yii\web\ForbiddenHttpException
+     * @throws \InvalidArgumentException
+     * @throws \RuntimeException
+     */
+    public function savePostedCookies(): void
+    {
+        try {
+            $request = Craft::$app->getRequest();
+            if (!$request instanceof \craft\web\Request || !$request->getIsPost()
+                || !Craft::$app->getUser()->getIsAdmin() || !$request->validateCsrfToken()) {
+                throw new \yii\web\ForbiddenHttpException('Cookie changes require an authorized request.');
+            }
+            if (!is_string($this->_cookiePassword)) {
+                throw new \InvalidArgumentException('Cookies must be pasted as text.');
+            }
+            Cookies::forCraft()->save($this->_cookiePassword, $this->_clearCookies);
         } finally {
             $this->_cookiePassword = '';
+            $this->_clearCookies = false;
         }
     }
 

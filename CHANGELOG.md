@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.4 - 2026-11-21
+
+- Added an administrator-only Video Downloader Cookies utility for changing private cookies on production with `allowAdminChanges=false`, without saving project config.
+- Fixed yt-dlp update instructions being mistaken for a login/bot-check error. TikTok unexpected webpage responses now get a specific diagnostic hint.
+
 ## 2.5.3 - 2026-11-16
 
 - Added a write-only native Cookies textarea with private storage, replacement, explicit clearing and blank-input preservation.

@@ -194,8 +194,11 @@ final class Downloader
         $low = strtolower($output);
         $youtube = self::isYoutubeUrl($url);
 
-        if (str_contains($low, 'sign in to confirm') || str_contains($low, 'confirm you')) {
+        if (str_contains($low, 'sign in to confirm') || preg_match('/confirm you(?:[’\']re| are) not a bot/', $low) === 1) {
             return 'The site wants a signed-in browser (bot check). Export a cookies.txt from a logged-in browser and paste it into Cookies in the plugin settings.';
+        }
+        if (str_contains($low, '[tiktok]') && str_contains($low, 'unexpected response from webpage request')) {
+            return 'TikTok returned a webpage that yt-dlp could not recognize. Check the installed yt-dlp version and browser impersonation support on this server. This error alone does not establish that login cookies are required.';
         }
         if ($youtube && (str_contains($low, '403') || str_contains($low, 'n challenge') || str_contains($low, 'only images are available'))) {
             if ($this->jsRuntimeArg() === null) {

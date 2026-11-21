@@ -1,0 +1,11 @@
+<p>{{ 'Manage private yt-dlp cookies for this environment. Changes apply to control-panel and MCP inspection and downloads, including queued jobs when they start. No project config changes or deployments are needed.'|t('app') }}</p>
+
+<form method="post" accept-charset="UTF-8">
+    {{ csrfInput() }}
+    {{ actionInput('video-downloader/cookies/save') }}
+    {{ hiddenInput('pluginHandle', 'video-downloader') }}
+    {% namespace 'settings' %}
+        {% include 'video-downloader/_cookies' with { settings: settings, cookiesConfigured: cookiesConfigured } only %}
+    {% endnamespace %}
+    <button type="submit" class="btn submit">{{ 'Save cookies'|t('app') }}</button>
+</form>

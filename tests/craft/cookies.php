@@ -29,7 +29,8 @@ use arifje\craftvideodownloader\services\FieldDownloads;
 
 class CookieTestRequest extends \craft\web\Request
 {
-    public function getIsCpRequest(): bool { return false; }
+    public bool $cp = false;
+    public function getIsCpRequest(): bool { return $this->cp; }
     public function getCsrfToken($regenerate = false): string { return Craft::$app->getSecurity()->maskToken('cookie-test-csrf'); }
 }
 class CookieTestProjectConfig extends \craft\services\ProjectConfig
@@ -131,6 +132,7 @@ try {
     $reflection = new ReflectionMethod($plugin, 'settingsHtml');
     $html = $app->getView()->namespaceInputs(fn() => $reflection->invoke($plugin), 'settings');
     $check('native settings textarea renders empty', str_contains($html, 'textarea') && str_contains($html, 'settings[cookiePassword]') && str_contains($html, 'Saved cookies are configured.') && !str_contains($html, $secret));
+    require __DIR__ . '/cookie-utility.php';
     echo 'Craft ' . $app->getVersion() . "\n";
 } finally {
     putenv('VD_EXPECT_COOKIE');
