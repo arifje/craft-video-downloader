@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.6 - 2026-11-23
+
+- Added per-domain cookie removal in Settings and Utilities, keeping cookie names and values private.
+- Serialized credential changes so simultaneous removals preserve each other; active downloads retain their private snapshots.
+
 ## 2.5.5 - 2026-11-21
 
 - The Cookies field now shows what is saved: a **Saved cookies** table lists each domain, its number of cookies and the first expiry (expired ones are marked), the tip shows when they were last saved, and the empty field says that saved cookies are kept. Cookie names and values are still never shown.

@@ -189,36 +189,88 @@ final class Cookies
         return rtrim($content, "\n") . "\n";
     }
 
-    /** Blank input preserves credentials; clear and replacement are mutually exclusive. */
-    public function save(#[\SensitiveParameter] string $content, bool $clear = false): void
+    /** Blank input preserves credentials; select only one kind of change per save. */
+    public function save(#[\SensitiveParameter] string $content, bool $clear = false, array $removeDomains = []): void
     {
         if (strlen($content) > self::MAX_BYTES) {
             throw new \InvalidArgumentException('Cookies must be no larger than 1 MiB.');
         }
-        if (trim($content) === '' && !$clear) {
-            return;
-        }
-        if ($clear && trim($content) !== '') {
-            throw new \InvalidArgumentException('Choose either replacement cookies or Clear saved cookies.');
-        }
-        $normalized = $clear ? null : self::validate(self::normalize($content));
-        $this->prepareDirectory();
-        $path = $this->directory . '/cookies.txt';
-        if ($clear) {
-            if ($this->configured() && !@unlink($path)) {
-                throw new \RuntimeException('Could not clear saved cookies. Check credential storage permissions.');
+        foreach ($removeDomains as $domain) {
+            if (!is_string($domain) || $domain === '' || strlen($domain) > 253 || preg_match('/[\s\x00-\x1F\x7F]/', $domain)) {
+                throw new \InvalidArgumentException('Select valid cookie domains to remove.');
             }
+        }
+        if ((int) (trim($content) !== '') + (int) $clear + (int) ($removeDomains !== []) > 1) {
+            throw new \InvalidArgumentException('Choose replacement cookies, selected domains to remove, or Clear saved cookies.');
+        }
+        if (trim($content) === '' && !$clear && $removeDomains === []) {
             return;
         }
-        $temporary = $this->writePrivate($normalized);
+        $normalized = trim($content) !== '' ? self::validate(self::normalize($content)) : null;
+        $this->prepareDirectory();
+        // A stable lock serializes all writers, including read-modify-write removal.
+        $lockPath = $this->directory . '/cookies.lock';
+        $lock = is_link($lockPath) ? false : @fopen($lockPath, 'c+b');
+        if ($lock === false) {
+            throw new \RuntimeException('Could not lock private cookie storage. Check storage permissions.');
+        }
         try {
-            if (!@rename($temporary, $path)) {
-                throw new \RuntimeException('Could not save cookies. Check credential storage permissions.');
+            if (!@chmod($lockPath, 0600) || !flock($lock, LOCK_EX)) {
+                throw new \RuntimeException('Could not lock private cookie storage. Check storage permissions.');
+            }
+            if ($removeDomains !== []) {
+                $snapshot = $this->snapshot();
+                if ($snapshot === null) {
+                    return;
+                }
+                try {
+                    $saved = file_get_contents($snapshot);
+                    if ($saved === false) {
+                        throw new \RuntimeException('Could not read saved cookies.');
+                    }
+                    $lines = [];
+                    $remaining = 0;
+                    $removed = 0;
+                    foreach (explode("\n", $saved) as $line) {
+                        if ($line !== '' && (!str_starts_with($line, '#') || str_starts_with($line, '#HttpOnly_'))) {
+                            $fields = explode("\t", str_starts_with($line, '#HttpOnly_') ? substr($line, 10) : $line);
+                            if (in_array(ltrim($fields[0], '.'), $removeDomains, true)) {
+                                $removed++;
+                                continue;
+                            }
+                            $remaining++;
+                        }
+                        $lines[] = $line;
+                    }
+                    if ($removed === 0) {
+                        return;
+                    }
+                    $clear = $remaining === 0;
+                    $normalized = $clear ? null : self::validate(implode("\n", $lines));
+                } finally {
+                    @unlink($snapshot);
+                }
+            }
+            $path = $this->directory . '/cookies.txt';
+            if ($clear) {
+                if ($this->configured() && !@unlink($path)) {
+                    throw new \RuntimeException('Could not clear saved cookies. Check credential storage permissions.');
+                }
+                return;
+            }
+            $temporary = $this->writePrivate($normalized);
+            try {
+                if (!@rename($temporary, $path)) {
+                    throw new \RuntimeException('Could not save cookies. Check credential storage permissions.');
+                }
+            } finally {
+                if (is_file($temporary)) {
+                    @unlink($temporary);
+                }
             }
         } finally {
-            if (is_file($temporary)) {
-                @unlink($temporary);
-            }
+            flock($lock, LOCK_UN);
+            fclose($lock);
         }
     }
 

@@ -28,6 +28,7 @@
         {% if cookiesSummary %}
             <table class="data fullwidth">
                 <thead><tr>
+                    <th>{{ 'Remove'|t('app') }}</th>
                     <th>{{ 'Domain'|t('app') }}</th>
                     <th>{{ 'Cookies'|t('app') }}</th>
                     <th>{{ 'First expiry'|t('app') }}</th>
@@ -35,6 +36,12 @@
                 <tbody>
                 {% for row in cookiesSummary %}
                     <tr>
+                        <td>{{ forms.checkbox({
+                            id: 'remove-cookie-domain-' ~ loop.index,
+                            name: 'removeCookieDomains[]',
+                            value: row.domain,
+                            aria: {label: 'Remove cookies for {domain}'|t('app', {domain: row.domain})},
+                        }) }}</td>
                         <td><code>{{ row.domain }}</code></td>
                         <td>{{ row.count }}</td>
                         <td>
@@ -49,7 +56,7 @@
         {% else %}
             <p class="light">{{ 'The saved cookie file could not be read.'|t('app') }}</p>
         {% endif %}
-        <p class="light">{{ 'Cookie names and values are not shown.'|t('app') }}</p>
+        <p class="light">{{ 'Select domains to remove when saving. Subdomains are separate rows. Cookie names and values are not shown. Removing every domain clears saved cookies and enables the legacy Cookies file fallback. Do not combine removal with replacement or Clear saved cookies.'|t('app') }}</p>
     </div>
 {% endif %}
 

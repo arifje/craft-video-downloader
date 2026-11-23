@@ -16,9 +16,9 @@ $check('admin sees cookie utility with admin changes disabled', CookieUtility::i
 $html = CookieUtility::contentHtml();
 $check('production utility renders empty credential field and CSRF input', str_contains($html, 'settings[cookiePassword]') && str_contains($html, 'video-downloader/cookies/save') && str_contains($html, $app->getRequest()->csrfParam) && !str_contains($html, $secret));
 
-$utilitySave = static function (mixed $input, bool $clear = false, bool $csrf = true, string $method = 'POST') use ($app, $submit): ?Response {
+$utilitySave = static function (mixed $input, bool $clear = false, bool $csrf = true, string $method = 'POST', mixed $domains = []) use ($app, $submit): ?Response {
     $_SERVER['REQUEST_METHOD'] = $method;
-    $plugin = $submit($input, $clear, $csrf);
+    $plugin = $submit($input, $clear, $csrf, $domains);
     $app->getRequest()->cp = true;
     $app->getRequest()->getHeaders()->set('Accept', 'application/json');
     $app->set('response', new Response());
@@ -63,6 +63,27 @@ foreach (['csrf', 'non-admin', 'anonymous', 'get'] as $case) {
         $denied = in_array($e->statusCode, [400, 403, 405], true);
     }
     $check('utility denies ' . $case . ' and preserves credentials', $denied && $readCookies() === $replacement);
+    $app->getUser()->setIdentity(new User(['id' => 1234567, 'admin' => true]));
+}
+$store->save($replacement . "other.test\tFALSE\t/\tFALSE\t0\tother\tprivate-value\n");
+$html = CookieUtility::contentHtml();
+$check('domain removal controls render without cookie values', str_contains($html, 'settings[removeCookieDomains][]') && str_contains($html, 'aria-label="Remove cookies for other.test"') && !str_contains($html, 'private-value'));
+$response = $utilitySave('', false, true, 'POST', ['other.test']);
+$check('utility removes selected domains on locked production', $response->getStatusCode() === 200 && $readCookies() === $replacement);
+$check('domain selections stripped before settings persistence', $app->getRequest()->getBodyParam('settings.removeCookieDomains') === null && !isset($_POST['settings']['removeCookieDomains']));
+$response = $utilitySave('', false, true, 'POST', 'invalid');
+$check('utility rejects malformed selection safely', $response->getStatusCode() === 400 && $readCookies() === $replacement);
+foreach (['csrf', 'non-admin'] as $case) {
+    if ($case === 'non-admin') {
+        $app->getUser()->setIdentity(new User(['id' => 1234568, 'admin' => false]));
+    }
+    try {
+        $utilitySave('', false, $case !== 'csrf', 'POST', ['example.test']);
+        $denied = false;
+    } catch (HttpException) {
+        $denied = true;
+    }
+    $check('domain removal denies ' . $case, $denied && $readCookies() === $replacement);
     $app->getUser()->setIdentity(new User(['id' => 1234567, 'admin' => true]));
 }
 $response = $utilitySave('', true);

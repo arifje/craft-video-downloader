@@ -49,6 +49,9 @@ class Plugin extends BasePlugin
     /** Explicit request-only deletion intent. */
     private bool $_clearCookies = false;
 
+    /** Request-only domains selected for removal. */
+    private mixed $_removeCookieDomains = [];
+
     public string $schemaVersion = '1.0.0';
     public bool $hasCpSettings = true;
     public bool $hasCpSection = true;
@@ -64,10 +67,11 @@ class Plugin extends BasePlugin
             && is_array($request->getBodyParam('settings'))) {
             $body = $request->getBodyParams();
             $this->_cookiePassword = $body['settings']['cookiePassword'] ?? '';
+            $this->_removeCookieDomains = $body['settings']['removeCookieDomains'] ?? [];
             $this->_clearCookies = ($body['settings']['clearCookies'] ?? '') === '1';
-            unset($body['settings']['cookiePassword'], $body['settings']['clearCookies']);
-            unset($_POST['settings']['cookiePassword'], $_POST['settings']['clearCookies']);
-            unset($_REQUEST['settings']['cookiePassword'], $_REQUEST['settings']['clearCookies']);
+            unset($body['settings']['cookiePassword'], $body['settings']['clearCookies'], $body['settings']['removeCookieDomains']);
+            unset($_POST['settings']['cookiePassword'], $_POST['settings']['clearCookies'], $_POST['settings']['removeCookieDomains']);
+            unset($_REQUEST['settings']['cookiePassword'], $_REQUEST['settings']['clearCookies'], $_REQUEST['settings']['removeCookieDomains']);
             if ($this->_cookiePassword !== '') {
                 $request->setRawBody('');
             }
@@ -154,7 +158,7 @@ class Plugin extends BasePlugin
         if (!parent::beforeSaveSettings()) {
             return false;
         }
-        if ($this->_cookiePassword === '' && !$this->_clearCookies) {
+        if ($this->_cookiePassword === '' && !$this->_clearCookies && $this->_removeCookieDomains === []) {
             return true;
         }
         if (!Craft::$app->getConfig()->getGeneral()->allowAdminChanges) {
@@ -189,10 +193,14 @@ class Plugin extends BasePlugin
             if (!is_string($this->_cookiePassword)) {
                 throw new \InvalidArgumentException('Cookies must be pasted as text.');
             }
-            Cookies::forCraft()->save($this->_cookiePassword, $this->_clearCookies);
+            if (!is_array($this->_removeCookieDomains)) {
+                throw new \InvalidArgumentException('Select valid cookie domains to remove.');
+            }
+            Cookies::forCraft()->save($this->_cookiePassword, $this->_clearCookies, $this->_removeCookieDomains);
         } finally {
             $this->_cookiePassword = '';
             $this->_clearCookies = false;
+            $this->_removeCookieDomains = [];
         }
     }
 

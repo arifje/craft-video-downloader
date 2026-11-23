@@ -70,9 +70,9 @@ $app->getConfig()->getGeneral()->allowAdminChanges = true;
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $secret = 'fixture-session-secret-123';
 $content = "# Netscape HTTP Cookie File\n#HttpOnly_.example.test\tTRUE\t/\tTRUE\t0\tsession\t$secret\n";
-$submit = static function (mixed $input, bool $clear = false, bool $csrf = true) use ($app): Plugin {
+$submit = static function (mixed $input, bool $clear = false, bool $csrf = true, mixed $domains = []) use ($app): Plugin {
     $request = new CookieTestRequest(['cookieValidationKey' => 'offline-test-key']);
-    $body = ['settings' => ['cookiePassword' => $input, 'clearCookies' => $clear ? '1' : ''], 'pluginHandle' => 'video-downloader'];
+    $body = ['settings' => ['removeCookieDomains' => $domains, 'cookiePassword' => $input, 'clearCookies' => $clear ? '1' : ''], 'pluginHandle' => 'video-downloader'];
     if ($csrf) {
         $body[$request->csrfParam] = $request->getCsrfToken();
     }
@@ -131,7 +131,11 @@ try {
     $app->controller = new \craft\controllers\PluginsController('plugins', $app);
     $reflection = new ReflectionMethod($plugin, 'settingsHtml');
     $html = $app->getView()->namespaceInputs(fn() => $reflection->invoke($plugin), 'settings');
-    $check('native settings textarea renders empty', str_contains($html, 'textarea') && str_contains($html, 'settings[cookiePassword]') && str_contains($html, 'Saved cookies are configured.') && !str_contains($html, $secret));
+    $check('native settings textarea renders empty', str_contains($html, 'textarea') && str_contains($html, 'settings[cookiePassword]') && str_contains($html, 'Saved cookies are configured') && !str_contains($html, $secret));
+    $store->save($content . "other.test\tFALSE\t/\tFALSE\t0\tother\tprivate-value\n");
+    $plugin = $submit('', false, true, ['other.test']);
+    $check('native settings removes selected domains', $app->getPlugins()->savePluginSettings($plugin, $app->getRequest()->getBodyParam('settings')) && $store->summary()[0]['domain'] === 'example.test' && count($store->summary()) === 1);
+    $check('domain selections never enter project config', !str_contains(json_encode($app->getProjectConfig()->writes), 'removeCookieDomains'));
     require __DIR__ . '/cookie-utility.php';
     echo 'Craft ' . $app->getVersion() . "\n";
 } finally {

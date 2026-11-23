@@ -315,3 +315,18 @@ Then enable it, set a field handle (or leave “Apply to” on *All*), make sure
 ## License
 
 MIT © arifje
+
+#### Removing saved domains
+
+Select **Remove** beside the domains in the saved-cookie table, then save. This
+removes all cookies for those exact displayed domains (including HttpOnly and
+leading-dot variants); subdomains have their own rows. Names and values stay
+hidden. Leave the paste field blank and do not select **Clear saved cookies**
+when removing selected domains. Removing the final domain clears managed cookies,
+so the legacy Cookies file is used if configured; legacy files are never edited.
+Inspection, downloads and MCP tools use the updated selection on their next
+operation. Already-running operations keep their private cookie snapshot.
+
+All saves and removals share a private file lock and use atomic replacement.
+Shared storage for web and queue workers must support cross-process file locking
+and atomic rename, including when mounted by multiple servers or containers.

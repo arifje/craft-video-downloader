@@ -122,3 +122,37 @@ check('summary never contains names or values', !str_contains(json_encode($summa
 check('saved time reported', abs(($lenient->savedAt() ?? 0) - time()) < 5);
 $lenient->save('', true);
 check('no summary or saved time after clearing', $lenient->summary() === [] && $lenient->savedAt() === null);
+
+// Domain removals preserve unrelated records and private snapshots.
+file_put_contents($legacy, $normalized);
+$multi = $normalized . "example.test\tFALSE\t/\tFALSE\t0\thost\thost-value\nsub.example.test\tFALSE\t/\tFALSE\t0\tsub\tsub-value\nother.test\tFALSE\t/\tFALSE\t0\tother\tother-value\n";
+$store->save($multi);
+$inFlight = $store->snapshot();
+$store->save('', false, ['example.test']);
+$remaining = "# Netscape HTTP Cookie File\nsub.example.test\tFALSE\t/\tFALSE\t0\tsub\tsub-value\nother.test\tFALSE\t/\tFALSE\t0\tother\tother-value\n";
+check('domain removal includes HttpOnly and leading-dot variants but not subdomains', $read($store) === $remaining);
+check('in-flight snapshot survives domain removal', file_get_contents($inFlight) === $multi);
+unlink($inFlight);
+$store->save('', false, ['missing.test']);
+check('unknown domain is a harmless no-op', $read($store) === $remaining);
+foreach ([[['bad']], ["bad\nvalue"], ['']] as $badDomains) {
+    check('invalid domain selection preserves saved cookies', throws(fn() => $store->save('', false, $badDomains)) && $read($store) === $remaining);
+}
+check('removal and replacement cannot be combined', throws(fn() => $store->save($normalized, false, ['other.test'])) && $read($store) === $remaining);
+check('removal and clear cannot be combined', throws(fn() => $store->save('', true, ['other.test'])) && $read($store) === $remaining);
+$store->save('', false, ['sub.example.test', 'other.test']);
+check('removing final domains clears managed file and enables legacy fallback', !$store->configured() && $read($store, $legacy) === $normalized);
+check('domain removal never edits legacy file', file_get_contents($legacy) === $normalized);
+// Multiple simultaneous removals must not overwrite each other.
+for ($round = 0; $round < 10; $round++) {
+    $store->save($multi);
+    $children = [];
+    foreach (['example.test', 'other.test'] as $domain) {
+        $children[] = proc_open([PHP_BINARY, __DIR__ . '/cookie-worker.php', $scratch, 'remove', $domain], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+    }
+    $ok = true;
+    foreach ($children as $child) {
+        $ok = proc_close($child) === 0 && $ok;
+    }
+    check('concurrent domain removals preserve both changes', $ok && $read($store) === "# Netscape HTTP Cookie File\nsub.example.test\tFALSE\t/\tFALSE\t0\tsub\tsub-value\n");
+}

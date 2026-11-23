@@ -2,6 +2,10 @@
 require __DIR__ . '/../../src/services/Cookies.php';
 use arifje\craftvideodownloader\services\Cookies;
 $store = new Cookies($argv[1] . '/credentials', $argv[1] . '/web');
+if ($argv[2] === 'remove') {
+    $store->save('', false, [$argv[3]]);
+    exit(0);
+}
 $original = "# Netscape HTTP Cookie File\n#HttpOnly_.example.test\tTRUE\t/\tTRUE\t0\tsession\t secret=value  \n";
 $replacement = str_replace('secret=value', 'replacement-value', $original);
 for ($iteration = 0; $iteration < 150; $iteration++) {
