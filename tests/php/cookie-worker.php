@@ -2,6 +2,10 @@
 require __DIR__ . '/../../src/services/Cookies.php';
 use arifje\craftvideodownloader\services\Cookies;
 $store = new Cookies($argv[1] . '/credentials', $argv[1] . '/web');
+if ($argv[2] === 'add') {
+    $store->save($argv[3] . "\tFALSE\t/\tFALSE\t0\ttoken\tvalue\n");
+    exit(0);
+}
 if ($argv[2] === 'remove') {
     $store->save('', false, [$argv[3]]);
     exit(0);

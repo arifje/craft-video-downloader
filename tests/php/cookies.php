@@ -81,6 +81,7 @@ $info = $downloader->inspect('https://videos.example-cdn.test/clip');
 check('credential metadata redacted recursively without corrupting numbers', !str_contains(json_encode($info), 'secret=value') && !isset($info['cookies']) && !isset($info['formats'][0]['http_headers']) && $info['duration'] === 1);
 putenv('VD_COOKIE_ECHO');
 putenv('VD_EXPECT_COOKIE');
+$store->save('', true);
 $store->save($normalized);
 
 // Independent PHP processes exercise atomic rename without requiring pcntl.
@@ -107,11 +108,13 @@ $json = json_encode([
 ]);
 $lenient->save($json);
 check('Cookie-Editor JSON converted to Netscape', $read($lenient) === "# Netscape HTTP Cookie File\n#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t1893456000\tSID\tabc\nwww.tiktok.com\tFALSE\t/\tFALSE\t0\ttt\tx\n");
+$lenient->save('', true);
 $lenient->save(json_encode(['cookies' => [['domain' => '.x.com', 'name' => 'auth', 'value' => 'v', 'path' => '/', 'expires' => -1, 'httpOnly' => false, 'secure' => true]]]));
 check('Playwright storage state converted', $read($lenient) === "# Netscape HTTP Cookie File\n.x.com\tTRUE\t/\tTRUE\t0\tauth\tv\n");
 check('broken JSON rejected with a clear message', throws(fn() => $lenient->save('[{"domain":'), 'JSON'));
 check('JSON cookie without a name rejected', throws(fn() => $lenient->save('[{"domain":".a.test","value":"v"}]'), 'JSON cookie 1'));
 check('invalid record names its line', throws(fn() => $lenient->save("# Netscape HTTP Cookie File\n.a.test\tTRUE\t/\tFALSE\t0\tok\tv\nnot a cookie\n"), 'Line 3'));
+$lenient->save('', true);
 $lenient->save($json);
 $summary = $lenient->summary();
 check('summary lists domains, counts and first expiry', $summary === [
@@ -156,3 +159,38 @@ for ($round = 0; $round < 10; $round++) {
     }
     check('concurrent domain removals preserve both changes', $ok && $read($store) === "# Netscape HTTP Cookie File\nsub.example.test\tFALSE\t/\tFALSE\t0\tsub\tsub-value\n");
 }
+
+// Adding exports preserves other sites and updates only matching identities.
+$store->save('', true);
+$store->save($normalized);
+$extra = "other.test\tFALSE\t/\tFALSE\t0\ttoken\t untouched  \n";
+$store->save($extra);
+check('adding another site preserves saved cookies', $read($store) === $normalized . $extra);
+$updated = "#HttpOnly_.EXAMPLE.test\tTRUE\t/\tTRUE\t1893456000\tsession\t updated  \n";
+$store->save($updated . $updated);
+check('duplicates collapse and incoming value expiry HttpOnly win', $read($store) === "# Netscape HTTP Cookie File\n" . $updated . $extra);
+$distinct = ".example.test\tTRUE\t/path\tTRUE\t0\tsession\tpath-value\nexample.test\tFALSE\t/\tTRUE\t0\tsession\thost-value\n";
+$store->save($distinct);
+check('different paths and host scope stay separate', array_sum(array_column($store->summary(), 'count')) === 4 && substr_count($read($store), "\tsession\t") === 3);
+$before = $read($store);
+check('invalid additions preserve entire merged set', throws(fn() => $store->save('not cookies')) && $read($store) === $before);
+$large = "large.test\tFALSE\t/\tFALSE\t0\tlarge\t" . str_repeat('a', 600000) . "\n";
+$store->save($large);
+$before = $read($store);
+check('combined size limit preserves prior set', throws(fn() => $store->save(str_replace('large.test', 'second.test', $large)), '1 MiB') && $read($store) === $before);
+$store->save('', true);
+$children = [];
+foreach (['one.test', 'two.test', 'three.test'] as $domain) {
+    $children[] = proc_open([PHP_BINARY, __DIR__ . '/cookie-worker.php', $scratch, 'add', $domain], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+}
+$ok = true;
+foreach ($children as $child) {
+    $ok = proc_close($child) === 0 && $ok;
+}
+check('simultaneous additions retain every site', $ok && count($store->summary()) === 3);
+
+$before = $read($store);
+file_put_contents($scratch . '/credentials/cookies.txt', 'invalid stored content');
+check('unreadable format in saved set blocks merging safely', throws(fn() => $store->save($normalized)) && file_get_contents($scratch . '/credentials/cookies.txt') === 'invalid stored content');
+$store->save('', true);
+$store->save($before);

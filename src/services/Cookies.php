@@ -201,7 +201,7 @@ final class Cookies
             }
         }
         if ((int) (trim($content) !== '') + (int) $clear + (int) ($removeDomains !== []) > 1) {
-            throw new \InvalidArgumentException('Choose replacement cookies, selected domains to remove, or Clear saved cookies.');
+            throw new \InvalidArgumentException('Choose cookies to add, selected domains to remove, or Clear saved cookies.');
         }
         if (trim($content) === '' && !$clear && $removeDomains === []) {
             return;
@@ -217,6 +217,20 @@ final class Cookies
         try {
             if (!@chmod($lockPath, 0600) || !flock($lock, LOCK_EX)) {
                 throw new \RuntimeException('Could not lock private cookie storage. Check storage permissions.');
+            }
+            if ($normalized !== null) {
+                $snapshot = $this->snapshot();
+                try {
+                    $saved = $snapshot === null ? '' : @file_get_contents($snapshot);
+                    if ($saved === false) {
+                        throw new \RuntimeException('Could not read saved cookies.');
+                    }
+                    $normalized = self::merge($saved, $normalized);
+                } finally {
+                    if ($snapshot !== null) {
+                        @unlink($snapshot);
+                    }
+                }
             }
             if ($removeDomains !== []) {
                 $snapshot = $this->snapshot();
@@ -272,6 +286,25 @@ final class Cookies
             flock($lock, LOCK_UN);
             fclose($lock);
         }
+    }
+
+    /** Merge validated records by domain, path and name; the last incoming record wins. */
+    private static function merge(#[\SensitiveParameter] string $saved, #[\SensitiveParameter] string $incoming): string
+    {
+        $records = [];
+        foreach ([$saved, $incoming] as $content) {
+            foreach (explode("\n", $content) as $line) {
+                if ($line === '' || (str_starts_with($line, '#') && !str_starts_with($line, '#HttpOnly_'))) {
+                    continue;
+                }
+                $fields = explode("\t", str_starts_with($line, '#HttpOnly_') ? substr($line, 10) : $line);
+                // Keep host-only and domain-scoped cookies distinct, as in yt-dlp's cookie jar.
+                $key = strtolower($fields[0]) . "\t" . $fields[2] . "\t" . $fields[5];
+                $records[$key] = $line;
+            }
+        }
+        // Validate the combined size as well as each individual submission.
+        return self::validate("# Netscape HTTP Cookie File\n" . implode("\n", $records) . "\n");
     }
 
     /** Snapshot the selected source; yt-dlp can write only its own disposable jar. */

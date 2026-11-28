@@ -65,7 +65,8 @@ foreach (['csrf', 'non-admin', 'anonymous', 'get'] as $case) {
     $check('utility denies ' . $case . ' and preserves credentials', $denied && $readCookies() === $replacement);
     $app->getUser()->setIdentity(new User(['id' => 1234567, 'admin' => true]));
 }
-$store->save($replacement . "other.test\tFALSE\t/\tFALSE\t0\tother\tprivate-value\n");
+$response = $utilitySave("other.test\tFALSE\t/\tFALSE\t0\tother\tprivate-value\n");
+$check('utility addition keeps existing credentials', $response->getStatusCode() === 200 && str_starts_with($readCookies(), $replacement) && !str_contains(json_encode($response->data), 'private-value'));
 $html = CookieUtility::contentHtml();
 $check('domain removal controls render without cookie values', str_contains($html, 'settings[removeCookieDomains][]') && str_contains($html, 'aria-label="Remove cookies for other.test"') && !str_contains($html, 'private-value'));
 $response = $utilitySave('', false, true, 'POST', ['other.test']);

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.7 - 2026-11-28
+
+- Merge pasted cookies into the saved set, updating matching records and removing duplicates without losing other cookies. Validate the merged size and serialize concurrent additions.
+- Clarified the private cookie form’s add/update behavior; explicit clearing and domain removal remain available.
+
 ## 2.5.6 - 2026-11-23
 
 - Added per-domain cookie removal in Settings and Utilities, keeping cookie names and values private.

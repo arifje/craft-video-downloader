@@ -142,8 +142,8 @@ For security the field always renders empty after saving: saved cookie names and
 values are never put back into the page. Below the field a **Saved cookies** table
 shows each domain, its number of cookies and the first expiry (expired ones are
 marked), and the tip shows when the cookies were last saved. Save with a blank field to preserve them, paste a new
-export to replace them, or select **Clear saved cookies** and Save to remove them.
-Replacement and clearing cannot be submitted together. Only administrators may
+export to add or update cookies, or select **Clear saved cookies** and Save to remove them.
+Adding cookies and clearing cannot be submitted together. Only administrators may
 change cookies, through a CSRF-protected form. The utility works with
 `allowAdminChanges=false` because it changes private runtime credentials, not
 project config. After deploying the plugin version containing this utility once,
@@ -330,3 +330,13 @@ operation. Already-running operations keep their private cookie snapshot.
 All saves and removals share a private file lock and use atomic replacement.
 Shared storage for web and queue workers must support cross-process file locking
 and atomic rename, including when mounted by multiple servers or containers.
+
+Pasted cookies are merged with managed cookies, never implicitly replacing the
+whole set. Cookies match by domain (case-insensitive, with leading-dot scope
+preserved), path and name; the last submitted matching record wins, including its
+value, expiry and HttpOnly flag. Other records remain. Duplicate records are
+collapsed, and both the input and merged result must fit within 1 MiB. Invalid
+input or unreadable saved storage leaves the saved set unchanged. Legacy cookie
+files remain a fallback and are not imported or modified. To start over, explicitly
+clear and save first, then paste the new set. Concurrent additions use the same
+lock as removals, preventing lost updates.
